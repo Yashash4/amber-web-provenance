@@ -15,11 +15,12 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Signing keys MUST NEVER be committed.
-# The demo signer key below is the one exception: it is a clearly-labelled
-# DEMO-ONLY key committed so anyone cloning the repo can reproduce the signed
-# golden packet. Real operator keys live outside the repo.
+# Signing PRIVATE keys MUST NEVER be committed — no exceptions.
+# Verification needs ONLY the PUBLIC key (the committed allowlist
+# amber/keys/trusted_signers.txt + amber/keys/demo-signer.pub), so a fresh clone
+# still verifies the golden packet GREEN with no secret. SEALING is an operator
+# action that needs the secret: the demo private key lives at the gitignored
+# path amber/keys/demo-signer.key (or env AMBER_SIGNING_KEY) and is regenerable.
 *.key
-!amber/keys/demo-signer.key
 secrets/
 *.private

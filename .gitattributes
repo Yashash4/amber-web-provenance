@@ -8,6 +8,7 @@ samples/real_packet/** -text
 # Captured response bodies anywhere are raw bytes — never normalise.
 *.body -text
 
-# Demo signer key/pubkey are exact hex with no trailing CRLF.
-amber/keys/demo-signer.key -text
+# Committed signer PUBLIC material is exact hex with no trailing CRLF. (The
+# PRIVATE key amber/keys/demo-signer.key is gitignored — never committed.)
 amber/keys/demo-signer.pub -text
+amber/keys/trusted_signers.txt -text
