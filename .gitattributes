@@ -1,0 +1,13 @@
+# The golden evidence packet must be byte-exact on every platform: its capture
+# bodies are hashed and Merkle-committed, and the sealed JSON is canonical
+# (LF-only). If Git normalised line endings on checkout, the recomputed hashes
+# would diverge and verify_packet would (wrongly) report RED on a fresh clone.
+# Treat the whole sealed sample as binary so no EOL conversion ever happens.
+samples/real_packet/** -text
+
+# Captured response bodies anywhere are raw bytes — never normalise.
+*.body -text
+
+# Demo signer key/pubkey are exact hex with no trailing CRLF.
+amber/keys/demo-signer.key -text
+amber/keys/demo-signer.pub -text
