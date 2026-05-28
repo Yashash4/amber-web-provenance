@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amber-web-provenance"
+version = "0.1.0"
+description = "Amber — forensically-signed, geo-attributed observations of public web state. Component 1: the signed-provenance primitive + offline verify_packet."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Yashash Sheshagiri" }]
+dependencies = [
+    # ed25519 signing/verification + sha256. Apache-2.0 / BSD licensed.
+    "cryptography>=42.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+verify_packet = "amber.cli:main"
+seal_packet = "amber.cli:seal_main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amber"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
