@@ -56,5 +56,57 @@ def test_real_packet_cli_exit_nonzero_after_tamper(tmp_path):
     assert verify_cli_main([str(copied)]) == 1
 
 
+@needs_real_packet
+def test_real_packet_cli_key_substitution_forge_exits_nonzero(tmp_path):
+    """End-to-end via the CLI on the GOLDEN packet: a key-substitution forge
+    (edit a fact + recompute the root + re-sign with a FRESH key + embed the new
+    pubkey) must exit non-zero (RED) because the forged key is not in the
+    committed trusted allowlist."""
+    import shutil
+
+    from amber import merkle
+    from amber.packet import (
+        CAPTURES_DIR,
+        LEAF_FACTS,
+        LEAF_MANIFEST,
+        MANIFEST_FILE,
+        MERKLE_FILE,
+        SIGNATURE_FILE,
+    )
+    from amber.signer import canonical_json, generate_keypair, sign_root
+
+    from .conftest import read_json, write_json_canonical
+
+    copied = tmp_path / "real_packet"
+    shutil.copytree(REAL_PACKET, copied)
+    assert verify_cli_main([str(copied)]) == 0  # GREEN against committed allowlist
+
+    facts = read_json(copied / FACTS_FILE)
+    facts["observations"][0]["body_bytes"] = 0  # tamper a number
+    write_json_canonical(copied / FACTS_FILE, facts)
+
+    manifest = read_json(copied / MANIFEST_FILE)
+    leaves = []
+    for entry in sorted(manifest["captures"], key=lambda e: e["capture_id"]):
+        body = (copied / CAPTURES_DIR / f"{entry['capture_id']}.body").read_bytes()
+        leaves.append((entry["capture_id"], merkle.leaf_hash(body)))
+    leaves.append((LEAF_MANIFEST, merkle.leaf_hash(canonical_json(manifest))))
+    leaves.append((LEAF_FACTS, merkle.leaf_hash(canonical_json(facts))))
+    new_root = merkle.merkle_root([h for _, h in leaves]).hex()
+    merkle_doc = read_json(copied / MERKLE_FILE)
+    merkle_doc["leaves"] = [{"label": label, "leaf_hash": h.hex()} for label, h in leaves]
+    merkle_doc["root"] = new_root
+    write_json_canonical(copied / MERKLE_FILE, merkle_doc)
+
+    forge_sk, forge_pk = generate_keypair()
+    sig = read_json(copied / SIGNATURE_FILE)
+    sig["public_key"] = forge_pk
+    sig["signature"] = sign_root(new_root, forge_sk)
+    write_json_canonical(copied / SIGNATURE_FILE, sig)
+
+    # CLI defaults to the committed allowlist, which does NOT contain forge_pk.
+    assert verify_cli_main([str(copied)]) == 1
+
+
 def test_cli_nonexistent_dir_exits_2():
     assert verify_cli_main(["/no/such/amber/packet/here"]) == 2

@@ -38,6 +38,7 @@ def canonical_json(payload: Any) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
+        allow_nan=False,  # reject NaN/Infinity: not valid RFC 8259 JSON, not signable
     ).encode("utf-8")
 
 

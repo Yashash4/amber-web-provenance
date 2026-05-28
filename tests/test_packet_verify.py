@@ -32,9 +32,19 @@ from amber.packet import (
 from .conftest import read_json, write_json_canonical
 
 
+def _trust(sealed_packet) -> set[str]:
+    """The trusted-signer set for a fixture packet = its own (ephemeral) pubkey.
+
+    The fixture signs with a freshly generated key, so verification must pin to
+    that key out-of-band — exactly as a real deployment pins to its operator's
+    key (and as the CLI defaults to the committed allowlist for the demo key).
+    """
+    return {sealed_packet["public_key_hex"]}
+
+
 def test_intact_packet_verifies_green(sealed_packet):
     """A freshly sealed packet verifies GREEN with no broken node."""
-    result = verify_packet(sealed_packet["dir"])
+    result = verify_packet(sealed_packet["dir"], expected_pubkeys=_trust(sealed_packet))
     assert result.ok is True
     assert result.broken_node is None
     # Every recorded check passed.
@@ -48,8 +58,9 @@ def test_intact_packet_green_repeated(sealed_packet):
     without re-sealing — re-verification is the operation under test.)
     """
     pkt = sealed_packet["dir"]
+    trust = _trust(sealed_packet)
     for _ in range(100):
-        assert verify_packet(pkt).ok is True
+        assert verify_packet(pkt, expected_pubkeys=trust).ok is True
 
 
 # --------------------------------------------------------------------------- #
@@ -162,12 +173,13 @@ TAMPER_CASES = [
 def test_tamper_makes_packet_red(sealed_packet, mutator):
     """Every tamper case must turn the packet RED and name a broken node."""
     pkt = sealed_packet["dir"]
+    trust = _trust(sealed_packet)
     # sanity: the packet is GREEN before tampering
-    assert verify_packet(pkt).ok is True
+    assert verify_packet(pkt, expected_pubkeys=trust).ok is True
 
     expected_node = mutator(pkt)
 
-    result = verify_packet(pkt)
+    result = verify_packet(pkt, expected_pubkeys=trust)
     assert result.ok is False, f"tamper {mutator.__name__} was NOT detected"
     assert result.broken_node is not None
     assert result.broken_node == expected_node, (
@@ -178,7 +190,8 @@ def test_tamper_makes_packet_red(sealed_packet, mutator):
 def test_revert_restores_green(sealed_packet):
     """THE TAMPER PROOF round-trip: GREEN -> edit -> RED -> revert -> GREEN."""
     pkt = sealed_packet["dir"]
-    assert verify_packet(pkt).ok is True
+    trust = _trust(sealed_packet)
+    assert verify_packet(pkt, expected_pubkeys=trust).ok is True
 
     facts_path = pkt / FACTS_FILE
     original = facts_path.read_bytes()
@@ -186,17 +199,87 @@ def test_revert_restores_green(sealed_packet):
     facts = json.loads(original.decode("utf-8"))
     facts["per_geo"][0]["price_gross"] = "9.99"
     write_json_canonical(facts_path, facts)
-    assert verify_packet(pkt).ok is False
+    assert verify_packet(pkt, expected_pubkeys=trust).ok is False
 
     facts_path.write_bytes(original)  # revert
-    assert verify_packet(pkt).ok is True
+    assert verify_packet(pkt, expected_pubkeys=trust).ok is True
+
+
+def test_key_substitution_forge_is_red(sealed_packet):
+    """THE FORGE that was missing: edit a fact, recompute the root, re-sign with
+    a FRESH ed25519 key, and embed the new pubkey in signature.json.
+
+    Without out-of-band signer pinning this packet is internally consistent and
+    would (wrongly) verify GREEN — proving only "signed by whoever signed it."
+    With the legit signer pinned, the verifier must reject it RED at
+    signature.json because the forged key is not in the trusted set. This is the
+    ship-blocking hole; this test is the proof it is closed.
+    """
+    from amber import merkle
+    from amber.packet import LEAF_FACTS, LEAF_MANIFEST, MERKLE_FILE
+    from amber.signer import canonical_json, generate_keypair, sign_root
+
+    pkt = sealed_packet["dir"]
+    trust = _trust(sealed_packet)  # the LEGIT signer is pinned
+    assert verify_packet(pkt, expected_pubkeys=trust).ok is True
+
+    # 1. Attacker edits a number in facts.json (changes its leaf -> the root).
+    facts = read_json(pkt / FACTS_FILE)
+    facts["per_geo"][0]["price_gross"] = "9.99"
+    write_json_canonical(pkt / FACTS_FILE, facts)
+
+    # 2. Attacker recomputes the Merkle leaves + root from scratch so the packet
+    #    is internally consistent again.
+    manifest = read_json(pkt / MANIFEST_FILE)
+    leaves: list[tuple[str, bytes]] = []
+    for entry in sorted(manifest["captures"], key=lambda e: e["capture_id"]):
+        body = (pkt / CAPTURES_DIR / f"{entry['capture_id']}.body").read_bytes()
+        leaves.append((entry["capture_id"], merkle.leaf_hash(body)))
+    leaves.append((LEAF_MANIFEST, merkle.leaf_hash(canonical_json(manifest))))
+    leaves.append((LEAF_FACTS, merkle.leaf_hash(canonical_json(facts))))
+    new_root = merkle.merkle_root([h for _, h in leaves]).hex()
+    merkle_doc = read_json(pkt / MERKLE_FILE)
+    merkle_doc["leaves"] = [{"label": label, "leaf_hash": h.hex()} for label, h in leaves]
+    merkle_doc["root"] = new_root
+    write_json_canonical(pkt / MERKLE_FILE, merkle_doc)
+
+    # 3. Attacker generates a FRESH keypair, signs the forged root with it, and
+    #    writes their own pubkey into signature.json.
+    forge_sk, forge_pk = generate_keypair()
+    assert forge_pk not in trust  # the forged key is, by construction, untrusted
+    sig = read_json(pkt / SIGNATURE_FILE)
+    sig["public_key"] = forge_pk
+    sig["signature"] = sign_root(new_root, forge_sk)
+    write_json_canonical(pkt / SIGNATURE_FILE, sig)
+
+    # 4. With the legit signer pinned out-of-band, the forge is rejected RED at
+    #    the signature node — the key is not an authorized Amber signer.
+    result = verify_packet(pkt, expected_pubkeys=trust)
+    assert result.ok is False, "KEY-SUBSTITUTION FORGE VERIFIED GREEN — hole open"
+    assert result.broken_node == SIGNATURE_FILE
+    assert "trusted set" in result.detail
+
+
+def test_no_trusted_key_fails_closed(sealed_packet):
+    """If no trusted signer key is available at all, the verifier fails CLOSED.
+
+    A packet whose signer cannot be checked against any out-of-band key MUST NOT
+    print an unqualified GREEN — an unverified signer cannot back the
+    tamper-proof claim. An empty trust set is explicitly NOT 'trust the bundled
+    key'.
+    """
+    pkt = sealed_packet["dir"]
+    result = verify_packet(pkt, expected_pubkeys=set())
+    assert result.ok is False
+    assert result.broken_node == SIGNATURE_FILE
+    assert "UNVERIFIED" in result.detail
 
 
 def test_missing_file_is_red(sealed_packet):
     """A missing control file is reported, not crashed on."""
     pkt = sealed_packet["dir"]
     (pkt / SIGNATURE_FILE).unlink()
-    result = verify_packet(pkt)
+    result = verify_packet(pkt, expected_pubkeys=_trust(sealed_packet))
     assert result.ok is False
     assert result.broken_node == SIGNATURE_FILE
 
@@ -205,6 +288,6 @@ def test_invalid_json_is_red(sealed_packet):
     """A control file corrupted into invalid JSON is reported, not crashed on."""
     pkt = sealed_packet["dir"]
     (pkt / FACTS_FILE).write_bytes(b"{not valid json")
-    result = verify_packet(pkt)
+    result = verify_packet(pkt, expected_pubkeys=_trust(sealed_packet))
     assert result.ok is False
     assert result.broken_node is not None

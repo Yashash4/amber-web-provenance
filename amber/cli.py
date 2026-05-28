@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from amber.packet import VerifyResult, verify_packet
+from amber.packet import VerifyResult, load_trusted_signers, verify_packet
 
 # ANSI colours, auto-disabled when stdout is not a TTY or NO_COLOR is set.
 _RESET = "\033[0m"
@@ -51,14 +51,59 @@ def _print_report(result: VerifyResult, packet_dir: Path, stream) -> None:
         )
 
 
+def _hex_pubkey(value: str) -> str:
+    """argparse type: validate a 64-char (32-byte) hex ed25519 public key."""
+    v = value.strip().lower()
+    try:
+        raw = bytes.fromhex(v)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not valid hex: {value!r}") from exc
+    if len(raw) != 32:
+        raise argparse.ArgumentTypeError(
+            f"ed25519 public key must be 32 bytes (64 hex chars), got {len(raw)}"
+        )
+    return v
+
+
+def _resolve_trusted(cli_pubkeys: list[str] | None) -> tuple[set[str], str]:
+    """Resolve the trusted signer set + a human label of where it came from.
+
+    Precedence: explicit ``--pubkey`` (repeatable) > ``AMBER_TRUSTED_PUBKEY``
+    (comma/space separated) > the committed ``amber/keys/trusted_signers.txt``
+    allowlist. The committed allowlist is the default so a fresh clone verifies
+    the golden packet GREEN against the pinned demo key with no extra flags.
+    """
+    if cli_pubkeys:
+        return {k.lower() for k in cli_pubkeys}, "--pubkey (CLI)"
+    env = os.environ.get("AMBER_TRUSTED_PUBKEY", "").strip()
+    if env:
+        keys = {tok.lower() for tok in env.replace(",", " ").split() if tok}
+        return keys, "AMBER_TRUSTED_PUBKEY env"
+    return load_trusted_signers(), "committed allowlist (amber/keys/trusted_signers.txt)"
+
+
 def main(argv: list[str] | None = None) -> int:
-    """``verify_packet <packet_dir>`` — offline re-verification. Exit 0=GREEN."""
+    """``verify_packet <packet_dir>`` — offline re-verification. Exit 0=GREEN.
+
+    The signature is pinned to a trusted signer public key supplied out-of-band
+    (``--pubkey`` / ``AMBER_TRUSTED_PUBKEY`` / the committed allowlist), never
+    solely the key inside the packet — this is what makes the tamper-proof real.
+    """
     parser = argparse.ArgumentParser(
         prog="verify_packet",
         description="Offline re-verify an Amber evidence packet "
-        "(recompute every hash + Merkle root + verify the ed25519 signature).",
+        "(recompute every hash + Merkle root + verify the ed25519 signature "
+        "against a PINNED trusted signer key).",
     )
     parser.add_argument("packet_dir", help="path to the sealed amber_packet/ directory")
+    parser.add_argument(
+        "--pubkey",
+        type=_hex_pubkey,
+        action="append",
+        metavar="HEX",
+        help="trusted signer ed25519 public key (64 hex chars); repeatable. "
+        "Overrides AMBER_TRUSTED_PUBKEY and the committed allowlist.",
+    )
     args = parser.parse_args(argv)
 
     packet_dir = Path(args.packet_dir)
@@ -72,7 +117,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    result = verify_packet(packet_dir)
+    trusted, source = _resolve_trusted(args.pubkey)
+    sys.stdout.write(
+        f"trusted signer source: {source} "
+        f"({len(trusted)} key{'s' if len(trusted) != 1 else ''})\n"
+    )
+    result = verify_packet(packet_dir, expected_pubkeys=trusted)
     _print_report(result, packet_dir, sys.stdout)
     return 0 if result.ok else 1
 

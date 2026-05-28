@@ -1,0 +1,17 @@
+# Amber trusted signer allowlist — authorized signer ed25519 PUBLIC keys.
+#
+# verify_packet pins the signature to a key in this set. A packet whose
+# signature.json carries a public key NOT listed here is rejected RED, even if
+# its signature is internally consistent — this is what closes the
+# key-substitution forge (attacker edits a fact, re-signs with a fresh key, and
+# writes their own pubkey into the packet). Without out-of-band pinning, such a
+# self-attesting packet proves only "signed by whoever signed it" = nothing.
+#
+# Public keys are PUBLIC, so committing them is correct (and necessary: a fresh
+# clone must verify the golden packet against the pinned key with no secret).
+# One 64-char hex (32-byte) ed25519 public key per line. Blank lines and lines
+# starting with '#' are ignored. The corresponding PRIVATE key lives outside the
+# repo (gitignored) — sealing needs the secret, verifying does not.
+#
+# demo-signer (DEMO-ONLY; reproduces the committed golden packet samples/real_packet)
+f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8

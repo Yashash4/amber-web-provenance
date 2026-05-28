@@ -51,6 +51,30 @@ CAPTURE_SUFFIX = ".body"
 LEAF_MANIFEST = "manifest.json"
 LEAF_FACTS = "facts.json"
 
+# Committed allowlist of authorized signer PUBLIC keys (see amber/keys/). Public
+# keys are public, so this file is committed; the matching private key is not.
+TRUSTED_SIGNERS_FILE = Path(__file__).resolve().parent / "keys" / "trusted_signers.txt"
+
+
+def load_trusted_signers(path: str | Path | None = None) -> set[str]:
+    """Load the committed allowlist of authorized signer public keys (hex).
+
+    Returns the set of 64-char hex ed25519 public keys, one per non-blank,
+    non-``#`` line. Returns an empty set if the file is absent — callers decide
+    whether an empty trust set is acceptable (it is not, for the security claim:
+    see ``verify_packet``).
+    """
+    p = Path(path) if path is not None else TRUSTED_SIGNERS_FILE
+    if not p.exists():
+        return set()
+    keys: set[str] = set()
+    for raw in p.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        keys.add(line.lower())
+    return keys
+
 
 def sha256_hex(data: bytes) -> str:
     """Hex SHA-256 of raw bytes (the body content hash recorded in the manifest)."""
@@ -213,16 +237,39 @@ def _load_json(path: Path) -> Any:
     return json.loads(path.read_bytes().decode("utf-8"))
 
 
-def verify_packet(packet_dir: str | Path) -> VerifyResult:
+def verify_packet(
+    packet_dir: str | Path,
+    expected_pubkeys: set[str] | None = None,
+) -> VerifyResult:
     """Re-verify a sealed packet, fully offline.
 
     Recomputes every capture body hash against the manifest, rebuilds every
-    Merkle leaf and the root, and verifies the ed25519 signature over the root.
+    Merkle leaf and the root, and verifies the ed25519 signature over the root
+    **against a trusted/pinned signer public key supplied out-of-band** — never
+    solely the key bundled inside the packet.
+
+    ``expected_pubkeys`` is the set of authorized signer public keys (64-char
+    hex) the signature must come from. If ``None``, the committed allowlist
+    (``amber/keys/trusted_signers.txt``) is used. The signer-key pin is what
+    closes the key-substitution forge: an attacker who edits a fact, recomputes
+    the root, signs it with a fresh keypair, and writes their own pubkey into
+    ``signature.json`` is rejected RED because that pubkey is not in the trusted
+    set. A packet is **self-attesting** without this pin — it proves only "signed
+    by whoever signed it," which proves nothing.
+
+    Fail-closed: if no trusted key is available at all (the allowlist is absent
+    and no ``expected_pubkeys`` were passed), verification FAILS rather than
+    printing an unqualified GREEN — an unverified signer cannot back the
+    tamper-proof security claim.
+
     Returns a :class:`VerifyResult`; never raises on a tampered/missing file —
     it reports which node broke.
     """
     checks: list[tuple[str, bool, str]] = []
     pkt = Path(packet_dir)
+
+    trusted = expected_pubkeys if expected_pubkeys is not None else load_trusted_signers()
+    trusted = {k.lower() for k in trusted}
 
     # 0. Required files present.
     for name in (MANIFEST_FILE, FACTS_FILE, MERKLE_FILE, SIGNATURE_FILE):
@@ -316,19 +363,49 @@ def verify_packet(packet_dir: str | Path) -> VerifyResult:
         )
     checks.append(("merkle.json/root", True, f"root ok ({recomputed_root[:16]}...)"))
 
-    # 4. Verify the ed25519 signature over the recomputed root. We sign the
+    # 4. Verify the ed25519 signature over the recomputed root. We verify the
     #    RECOMPUTED root (not the recorded one) so a tamperer cannot rescue a
     #    bad packet by also editing merkle.json's root field.
     public_key = signature_doc.get("public_key")
     signature_hex = signature_doc.get("signature")
     if not isinstance(public_key, str) or not isinstance(signature_hex, str):
         return _fail(checks, SIGNATURE_FILE, "signature.json missing public_key/signature")
+
+    # 4a. PIN THE SIGNER KEY (closes the key-substitution forge). The signature
+    #     is checked against the trusted set supplied out-of-band, NOT merely the
+    #     key the packet carries. Fail-closed when there is no trust source at
+    #     all, so we never emit an unqualified GREEN for an unverified signer.
+    if not trusted:
+        return _fail(
+            checks,
+            SIGNATURE_FILE,
+            "no trusted signer key available (allowlist absent and no --pubkey / "
+            "AMBER_TRUSTED_PUBKEY supplied): signer is UNVERIFIED — refusing to "
+            "assert VERIFIED. Supply the expected signer public key out-of-band.",
+        )
+    if public_key.lower() not in trusted:
+        return _fail(
+            checks,
+            SIGNATURE_FILE,
+            f"signer key not in trusted set: packet is signed by "
+            f"{public_key.lower()} which is not an authorized Amber signer "
+            f"(key substitution / forged-key packet).",
+        )
+    # The packet's pubkey is trusted; verify the signature against THAT key.
     if not verify_root_signature(recomputed_root, signature_hex, public_key):
         return _fail(
             checks,
             SIGNATURE_FILE,
-            "ed25519 signature does not verify over the recomputed Merkle root",
+            "ed25519 signature does not verify over the recomputed Merkle root "
+            "under the trusted signer key",
         )
-    checks.append((SIGNATURE_FILE, True, "ed25519 signature verified over root"))
+    checks.append(
+        (
+            SIGNATURE_FILE,
+            True,
+            f"ed25519 signature verified over root under trusted signer "
+            f"{public_key.lower()[:16]}...",
+        )
+    )
 
     return VerifyResult(ok=True, broken_node=None, detail="all checks passed", checks=checks)
