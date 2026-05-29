@@ -13,6 +13,10 @@ authors = [{ name = "Yashash Sheshagiri" }]
 dependencies = [
     # ed25519 signing/verification + sha256. Apache-2.0 / BSD licensed.
     "cryptography>=42.0",
+    # HTTP client for the Bright Data residential super-proxy. Apache-2.0.
+    # Unlike urllib, requests/urllib3 send Proxy-Authorization on the HTTPS
+    # CONNECT tunnel, which the residential proxy requires.
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +36,9 @@ packages = ["amber"]
 # the committed signer public material with the package.
 artifacts = [
     "amber/capture/data/*.tsv",
+    # The committed Bright Data Proxy Root CA used to validate the intercepted
+    # residential-proxy CONNECT tunnel (verification stays ON, never disabled).
+    "amber/capture/data/*.crt",
     "amber/keys/*.pub",
     "amber/keys/*.txt",
 ]

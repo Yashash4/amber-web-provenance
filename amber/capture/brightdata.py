@@ -13,7 +13,22 @@ present — see :mod:`amber.capture.credentials`):
     form ``brd-customer-<id>-zone-<zone>-country-<cc>-session-<sid>`` and the
     zone password. Each distinct ``session`` token sticks to a distinct
     residential IP, which is exactly the within-country control: N sessions =>
-    N distinct exits in the same country.
+    N distinct exits in the same country. The fetch is performed with
+    ``requests`` (Apache-2.0), which — unlike ``urllib`` — sends
+    ``Proxy-Authorization`` on the HTTPS ``CONNECT`` tunnel correctly.
+
+    Bright Data's port-33335 super-proxy terminates ("intercepts") TLS on the
+    tunnel and presents a leaf chaining to its own published "Bright Data Proxy
+    Root CA". So system roots alone cannot validate it. We do NOT disable
+    verification (this is a forensic instrument): instead we validate the chain
+    against the COMMITTED Bright Data CA (shipped at
+    ``amber/capture/data/brightdata_proxy_ca.crt``) AND the system roots (for
+    targets Bright Data passes through un-intercepted), with hostname checking
+    and ``CERT_REQUIRED`` kept ON. The only relaxation is OpenSSL's strict
+    X.509 *extension-presence* check (the BD leaf omits an Authority Key
+    Identifier), which is an extension-formatting rule, not a trust or hostname
+    check — a cert that does not chain to a trusted root, or whose hostname is
+    wrong, still fails the handshake (proven by a negative-control test).
 
   * ``api`` — the Bright Data Web Unlocker / request API (token in the
     ``Authorization: Bearer`` header). Country + a per-call session are passed in
@@ -38,6 +53,12 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 from amber.capture.credentials import BrightDataCredentials, CredentialsMissing
 from amber.capture.record import CaptureRecord
@@ -46,11 +67,26 @@ from amber.capture.record import CaptureRecord
 SUPERPROXY_HOST = "brd.superproxy.io"
 SUPERPROXY_PORT = 33335
 
+# The committed Bright Data Proxy Root CA (the cert the port-33335 super-proxy
+# presents on the intercepted CONNECT tunnel). Shipped with the package; the
+# proxy fetch validates the tunnel against THIS plus the system roots — verified,
+# never disabled. Sourced from https://brightdata.com/static/brightdata_proxy_ca.zip
+# (CN="Bright Data Proxy Root CA", valid through 2034-09-14).
+BRIGHTDATA_CA_PATH = Path(__file__).resolve().parent / "data" / "brightdata_proxy_ca.crt"
+
 # A stable IP-echo endpoint reachable through the proxy to discover the exit IP.
 # geo.brdtest.com/welcome.txt?product=resi returns the exit IP + geo Bright Data
 # itself sees; we fall back to a plain ipify-style echo if needed.
 _IP_ECHO_URL = "https://geo.brdtest.com/welcome.txt?product=resi&method=native"
 _IP_ECHO_FALLBACK = "https://api.ipify.org?format=json"
+
+_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+}
 
 DEFAULT_TIMEOUT = 45
 
@@ -66,72 +102,139 @@ class _ProxyResult:
     body: bytes
 
 
+class _BrightDataTLSAdapter(HTTPAdapter):
+    """A requests adapter that validates the BD-intercepted CONNECT tunnel.
+
+    Verification stays ON. We trust the system roots (for targets Bright Data
+    passes through) PLUS the committed Bright Data Proxy Root CA (for the
+    targets it terminates TLS on, presenting a leaf chaining to that root).
+    ``check_hostname`` and ``CERT_REQUIRED`` remain enabled, so a leaf that does
+    not chain to a trusted root — or whose hostname is wrong — still fails.
+
+    The single relaxation is clearing OpenSSL's ``VERIFY_X509_STRICT`` flag: the
+    Bright Data leaf omits an Authority Key Identifier, which strict mode rejects
+    on formatting grounds even though the chain is cryptographically valid. That
+    is an extension-presence rule, not a trust or hostname check, and is the
+    documented requirement for using the port-33335 super-proxy.
+    """
+
+    def __init__(self, ca_data: str, **kwargs: object) -> None:
+        self._ca_data = ca_data
+        super().__init__(**kwargs)
+
+    def _build_context(self) -> ssl.SSLContext:
+        ctx = create_urllib3_context()
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.load_default_certs()
+        ctx.load_verify_locations(cadata=self._ca_data)
+        return ctx
+
+    def init_poolmanager(self, *args: object, **kwargs: object):  # type: ignore[override]
+        kwargs["ssl_context"] = self._build_context()
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, *args: object, **kwargs: object):  # type: ignore[override]
+        kwargs["ssl_context"] = self._build_context()
+        return super().proxy_manager_for(*args, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def _brightdata_ca_data() -> str:
+    """The committed Bright Data CA PEM text (read once, cached)."""
+    try:
+        return BRIGHTDATA_CA_PATH.read_text(encoding="ascii")
+    except OSError as exc:  # pragma: no cover - the cert is shipped with the package
+        raise CaptureError(
+            f"Bright Data CA certificate missing at {BRIGHTDATA_CA_PATH}: {exc}"
+        ) from exc
+
+
+def _sanitize_session_token(session: str) -> str:
+    """Reduce a session label to a Bright-Data-safe sticky-session token.
+
+    Bright Data parses the proxy username on ``-`` boundaries
+    (``…-session-<sid>``), so a ``-`` (or any non-alphanumeric) INSIDE the
+    session token corrupts the field and the proxy returns ``407 Invalid Auth``.
+    BD session tokens must therefore be alphanumeric. We strip every
+    non-alphanumeric character (e.g. ``amber-de-1-1748…`` -> ``amberde11748…``)
+    so the token is accepted while staying DETERMINISTIC and DISTINCT per input
+    label — which is what the within-country control relies on (one distinct
+    token => one distinct sticky residential exit). The original, human-readable
+    label is preserved on the :class:`CaptureRecord` (``session_id``); only the
+    on-wire proxy token is sanitized.
+    """
+    token = "".join(ch for ch in session if ch.isalnum())
+    if not token:
+        raise CaptureError(
+            f"session token {session!r} has no alphanumeric characters; cannot "
+            "build a valid Bright Data sticky-session token"
+        )
+    return token
+
+
 def _proxy_username(creds: BrightDataCredentials, country: str, session: str) -> str:
     """Build the residential proxy username for a country + sticky session.
 
     Format: ``brd-customer-<id>-zone-<zone>-country-<cc>-session-<sid>``. The
-    session token pins one residential IP for that token's lifetime, so distinct
-    sessions = distinct exits (the within-country control).
+    session token (sanitized to alphanumerics — see
+    :func:`_sanitize_session_token`) pins one residential IP for that token's
+    lifetime, so distinct sessions = distinct exits (the within-country control).
     """
     cc = country.lower()
+    sid = _sanitize_session_token(session)
     return (
         f"brd-customer-{creds.customer_id}"
         f"-zone-{creds.zone}"
         f"-country-{cc}"
-        f"-session-{session}"
+        f"-session-{sid}"
     )
 
 
-def _build_proxy_opener(
+def _build_proxy_session(
     creds: BrightDataCredentials, country: str, session: str
-) -> urllib.request.OpenerDirector:
-    """An opener routing through the BD residential proxy for one country+session.
+) -> requests.Session:
+    """A requests Session routed through the BD residential proxy for one exit.
 
-    Bright Data's residential exits terminate TLS to the origin; the proxy
-    presents its own CA for the CONNECT tunnel in some configs. We use the
-    system trust store for the origin and do not disable verification — a failed
-    handshake is surfaced as a CaptureError, never silently downgraded.
+    The proxy URL carries the per-country, per-session username + zone password,
+    so every request on this session sticks to one residential IP. The session
+    mounts :class:`_BrightDataTLSAdapter`, which validates the intercepted
+    CONNECT tunnel against the committed Bright Data CA plus the system roots —
+    verification stays ON; a bad chain/hostname still fails the handshake.
     """
     user = _proxy_username(creds, country, session)
     proxy_url = f"http://{user}:{creds.password}@{SUPERPROXY_HOST}:{SUPERPROXY_PORT}"
-    proxy_handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-    ctx = ssl.create_default_context()
-    https_handler = urllib.request.HTTPSHandler(context=ctx)
-    return urllib.request.build_opener(proxy_handler, https_handler)
+    sess = requests.Session()
+    sess.proxies = {"http": proxy_url, "https": proxy_url}
+    sess.headers.update(_REQUEST_HEADERS)
+    adapter = _BrightDataTLSAdapter(_brightdata_ca_data())
+    sess.mount("https://", adapter)
+    sess.mount("http://", adapter)
+    return sess
 
 
 def _fetch_via_proxy(
-    opener: urllib.request.OpenerDirector,
+    sess: requests.Session,
     url: str,
     timeout: int,
 ) -> _ProxyResult:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-        },
-    )
+    """Fetch ``url`` through the proxy session.
+
+    An HTTP error status (e.g. 451/403) IS a real, capturable result — we keep
+    its body + headers + status and let the floor classify it; we do NOT raise on
+    4xx/5xx. Only a genuine transport/connection failure (DNS, proxy auth,
+    timeout, TLS handshake) raises :class:`CaptureError`.
+    """
     try:
-        with opener.open(req, timeout=timeout) as resp:  # noqa: S310 (real fetch is the point)
-            body = resp.read()
-            status = resp.status
-            headers = {k.lower(): v for k, v in resp.headers.items()}
-    except urllib.error.HTTPError as exc:
-        # An HTTP error status IS a real, capturable result (e.g. 451/403) — keep
-        # the body + headers; the floor classifies it. Not an exception to us.
-        body = exc.read() if exc.fp else b""
-        status = exc.code
-        headers = {k.lower(): v for k, v in (exc.headers.items() if exc.headers else [])}
-    except (urllib.error.URLError, TimeoutError, ssl.SSLError, OSError) as exc:
+        resp = sess.get(url, timeout=timeout, allow_redirects=True)
+    except requests.exceptions.RequestException as exc:
         raise CaptureError(f"proxy fetch failed for {url} via session: {exc}") from exc
-    return _ProxyResult(status=status, headers=headers, body=body)
+    headers = {k.lower(): v for k, v in resp.headers.items()}
+    return _ProxyResult(status=resp.status_code, headers=headers, body=resp.content)
 
 
-def _discover_exit_ip(opener: urllib.request.OpenerDirector, timeout: int) -> str:
+def _discover_exit_ip(sess: requests.Session, timeout: int) -> str:
     """Discover the real residential exit IP for this session, through the proxy.
 
     Returns the exit IP string. Raises CaptureError if it cannot be determined —
@@ -139,7 +242,7 @@ def _discover_exit_ip(opener: urllib.request.OpenerDirector, timeout: int) -> st
     the geo claim); the harness records the failure rather than guessing.
     """
     try:
-        res = _fetch_via_proxy(opener, _IP_ECHO_URL, timeout)
+        res = _fetch_via_proxy(sess, _IP_ECHO_URL, timeout)
         text = res.body.decode("utf-8", errors="replace")
         # welcome.txt format: lines like "Country: de" and "... IP: 1.2.3.4".
         for line in text.splitlines():
@@ -151,17 +254,17 @@ def _discover_exit_ip(opener: urllib.request.OpenerDirector, timeout: int) -> st
     except CaptureError:
         pass
     # Fallback: a plain JSON IP echo through the same proxy session.
-    res = _fetch_via_proxy(opener, _IP_ECHO_FALLBACK, timeout)
+    res = _fetch_via_proxy(sess, _IP_ECHO_FALLBACK, timeout)
     try:
         return json.loads(res.body.decode("utf-8"))["ip"]
     except (ValueError, KeyError) as exc:
         raise CaptureError(f"could not discover exit IP: {exc}") from exc
 
 
-def _exit_country_from_echo(opener: urllib.request.OpenerDirector, timeout: int) -> str | None:
+def _exit_country_from_echo(sess: requests.Session, timeout: int) -> str | None:
     """Best-effort proxy-reported exit country from the BD welcome echo."""
     try:
-        res = _fetch_via_proxy(opener, _IP_ECHO_URL, timeout)
+        res = _fetch_via_proxy(sess, _IP_ECHO_URL, timeout)
         text = res.body.decode("utf-8", errors="replace")
         for line in text.splitlines():
             low = line.lower()
@@ -234,10 +337,13 @@ def capture_one(
     CaptureError on a real failure (never returns a fabricated record).
     """
     if creds.mode == "proxy":
-        opener = _build_proxy_opener(creds, country, session)
-        exit_ip = _discover_exit_ip(opener, timeout)
-        proxy_country = _exit_country_from_echo(opener, timeout)
-        res = _fetch_via_proxy(opener, url, timeout)
+        sess = _build_proxy_session(creds, country, session)
+        try:
+            exit_ip = _discover_exit_ip(sess, timeout)
+            proxy_country = _exit_country_from_echo(sess, timeout)
+            res = _fetch_via_proxy(sess, url, timeout)
+        finally:
+            sess.close()
     elif creds.mode == "api":
         res, exit_ip = _fetch_via_api(creds, url, country, timeout)
         proxy_country = country.upper()
