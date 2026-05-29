@@ -1,0 +1,17 @@
+# dependencies
+/node_modules
+
+# next.js build output
+/.next
+/out
+
+# the tamper-proof's private editable working copy (never the committed packet)
+/.amber-demo
+
+# typescript / next
+next-env.d.ts.bak
+*.tsbuildinfo
+
+# env
+.env
+.env.local
