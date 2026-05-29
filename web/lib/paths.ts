@@ -18,17 +18,25 @@ export const WEB_ROOT = process.cwd();
 
 /**
  * The directory of the packet the demo renders + verifies. Override with
- * `AMBER_PACKET_DIR` (absolute, or relative to `code/`) to swap in the REAL
- * Bright Data DE/BE capture once credentials exist — the UI reads whatever
- * packet dir it is pointed at, so the swap is a single env var.
+ * `AMBER_PACKET_DIR` (absolute, or relative to `code/`) to point the UI at any
+ * packet dir — the UI reads whatever it is pointed at.
  *
- * Default: the committed CONSTRUCTED FIXTURE `samples/floor_demo_packet`. It is
- * labelled a fixture everywhere in the UI; it is NOT presented as a real catch.
+ * Default precedence:
+ *   1. `AMBER_PACKET_DIR` (explicit override).
+ *   2. `samples/live_packet` — the REAL Bright Data DE/BE residential capture
+ *      (the €10.75 net-of-tax AirPods 4 catch), when present. This is the
+ *      demo default so a fresh clone shows the real signed catch, not a fixture.
+ *   3. `samples/floor_demo_packet` — the committed CONSTRUCTED FIXTURE fallback,
+ *      labelled a fixture everywhere in the UI; never presented as a real catch.
  */
 export function packetDir(): string {
   const override = process.env.AMBER_PACKET_DIR?.trim();
   if (override) {
     return resolve(REPO_ROOT, override);
+  }
+  const livePacket = join(REPO_ROOT, "samples", "live_packet");
+  if (existsSync(join(livePacket, "facts.json"))) {
+    return livePacket;
   }
   return join(REPO_ROOT, "samples", "floor_demo_packet");
 }

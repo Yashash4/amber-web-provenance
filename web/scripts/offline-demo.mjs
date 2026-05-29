@@ -36,10 +36,21 @@ import { fileURLToPath } from "node:url";
 const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(WEB_ROOT, "..");
 
-const PACKET_DIR =
-  process.env.AMBER_PACKET_DIR
-    ? resolve(REPO_ROOT, process.env.AMBER_PACKET_DIR)
-    : join(REPO_ROOT, "samples", "floor_demo_packet");
+/**
+ * Packet default precedence (mirrors web/lib/paths.ts):
+ *   1. AMBER_PACKET_DIR (explicit override)
+ *   2. samples/live_packet  — the REAL BD DE/BE residential catch, when present
+ *   3. samples/floor_demo_packet — the committed labelled fixture fallback
+ */
+function defaultPacketDir() {
+  const livePacket = join(REPO_ROOT, "samples", "live_packet");
+  if (existsSync(join(livePacket, "facts.json"))) return livePacket;
+  return join(REPO_ROOT, "samples", "floor_demo_packet");
+}
+
+const PACKET_DIR = process.env.AMBER_PACKET_DIR
+  ? resolve(REPO_ROOT, process.env.AMBER_PACKET_DIR)
+  : defaultPacketDir();
 const WORK_DIR = join(WEB_ROOT, ".amber-demo", "offline_working_packet");
 const TRUSTED_PUBKEY =
   process.env.AMBER_TRUSTED_PUBKEY?.trim() ||
