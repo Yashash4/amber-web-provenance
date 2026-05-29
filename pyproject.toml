@@ -21,6 +21,10 @@ dependencies = [
     # the AI/ML API gateway (api.aimlapi.com). Apache-2.0. The Phase-1 signed-
     # packet core does not import it.
     "openai>=1.40",
+    # Cognee — self-hosted agent-memory / temporal knowledge graph. Apache-2.0.
+    # Used ONLY by the Phase-2 memory layer (amber/memory/) over the signed
+    # facts; imported lazily so the Phase-1 core + the unit suite never need it.
+    "cognee>=1.1",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +38,8 @@ verify_packet = "amber.cli:main"
 seal_packet = "amber.cli:seal_main"
 amber-capture = "amber.capture_cli:main"
 amber-jury = "amber.jury.cli:main"
+amber-memory = "amber.memory.cli:main"
+amber-workflow = "amber.workflow.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["amber"]

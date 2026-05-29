@@ -178,6 +178,160 @@ real gateway:
 AMBER_JURY_LIVE=1 pytest tests/test_jury_live_smoke.py
 ```
 
+## Phase 2 — the agent-memory / temporal-persistence layer (Cognee)
+
+> **Layer boundary (same physical split as the jury).** The memory layer reads
+> the SIGNED Layer-1 `facts.json` and builds analysis *over* it — a self-hosted
+> Cognee temporal knowledge graph plus a deterministic persistence verdict. It
+> NEVER writes into the signed packet and never imports the signing core; an LLM
+> never computes a fact or number into the signed bundle.
+
+`amber/memory/` answers the question that turns a price gap into a *margin-leak*
+signal: **is the net-of-tax gap persistent, or just noise?** A one-off gap is
+nothing; a gap the same SKU shows across captures is real diversion / leakage —
+which is exactly the Finance / anti-diversion persistence angle. Cognee is the
+**Best Use of Agent Memory**: a brand's agent *remembers* every signed
+observation and can ask the graph "has this SKU shown a gap before? which
+countries/SKUs recur? is it sustained?".
+
+### Honesty — real captures only (never a fabricated history)
+
+Price history is **never** fabricated. The persistence analysis runs only over
+the captures that genuinely exist, and every summary frames the window honestly:
+**"N captures over [real window]; the baseline compounds from day one."** With a
+single signed capture the answer is a one-point **BASELINE** — persistence is
+*not* asserted from one capture. Faking a multi-week chart is disqualifying; we
+do not do it.
+
+### Cognee on the Gemini backend (one key, no extra credentials)
+
+Cognee is self-hosted. Both the LLM and the embedding model are configured to
+use **Gemini** via its OpenAI-compatible endpoint, with the single direct
+`GEMINI_API_KEY` (read from the env or the gitignored `code/.env`; never printed).
+One key covers chat + embeddings, so the layer needs no extra credentials and
+stays inside the Gemini free tier.
+
+| Role | Model |
+|---|---|
+| LLM | `gemini-2.0-flash` |
+| Embeddings | `text-embedding-004` (768 dims) |
+
+```bash
+# Deterministic persistence verdict — OFFLINE, no Gemini calls, no credits:
+amber-memory persistence samples/live_packet         # add --json for the report
+#   -> VERDICT: BASELINE (one real capture; net-of-tax delta 10.75 EUR, dearer: DE;
+#      within-country control corroborated; "1 capture ... the baseline compounds
+#      from day one")
+
+# Ingest signed packet(s) into the self-hosted Cognee temporal graph (Gemini):
+amber-memory ingest samples/live_packet              # real captures only
+amber-memory ingest p1 p2 p3                          # a real time series
+
+# Ask the graph an agent-memory question (TEMPORAL = time-aware persistence):
+amber-memory query "has the AirPods 4 SKU shown a net-of-tax gap before, and \
+    is it persistent?" --temporal
+
+amber-memory creds                                    # secret-free Gemini key state
+```
+
+The `persistence` subcommand is the reproducible ground truth (deterministic, no
+LLM) that the graph's natural-language answers can be checked against — the same
+discipline as the jury's gold set: the receipts, not the model's vibes.
+
+### Memory tests
+
+The memory suite mocks Cognee + Gemini (no credits) and covers the observation
+mapping (asserted against the **real** AirPods facts), the persistence verdicts
+(baseline / persistent / intermittent / transient), the honest "N captures over
+real window" framing (never fabricates points), the Gemini-backend wiring (key
+passed to LLM **and** embeddings, never leaked), and the boundary (ingesting a
+packet never writes a file into it). One opt-in live smoke test ingests the real
+packet and runs one query:
+
+```bash
+AMBER_MEMORY_LIVE=1 pytest tests/test_memory_live_smoke.py
+```
+
+## Phase 2 — the event-driven automated workflow (TriggerWare.ai)
+
+> **Layer boundary (same physical split as the jury / memory layers).** The
+> workflow layer only *reads* a packet's signed Layer-1 `facts.json`. It never
+> writes into the signed packet, never imports the Phase-1 spine, and lets no
+> value flow back into the signed bundle. (Confirmed: a packet still verifies
+> GREEN after the workflow runs over it.)
+
+`amber/workflow/` closes the loop: **a signed Amber web-data change → a
+TriggerWare trigger → an agent decision → a real-world brand-protection alert.**
+This is the textbook automated workflow — TriggerWare.ai's *"Best Use of
+Automated Workflows"* challenge.
+
+**What TriggerWare.ai is** (confirmed live against the API, and from
+`https://docs.triggerware.com/`): a *"SQL Over Everything"* platform. Base URL
+`https://api.triggerware.com`, auth via an `Api-Key:` header. It exposes data
+sources as queryable virtual tables (`POST /query`, natural-language or SQL) and
+lets you register **triggers** — a saved SQL query polled on a schedule. The
+platform accumulates the *deltas* (rows added/removed since the last poll); your
+agent polls `POST /triggers/{name}/poll` and acts on the `added`/`deleted` rows.
+
+Amber maps a signed observation onto that primitive: the deterministic
+`cross_country_comparison` (net-of-tax delta / access-denial) becomes a one-row
+SQL `SELECT` of the signed signal columns, gated by the brand's alert threshold
+(`net_of_tax_delta_eur > <threshold>`). The trigger fires *exactly when* the
+signed delta crosses the threshold — so the first poll returns the event as an
+`added` delta and Amber raises a brand-protection alert that states the signed
+**FACT** ("PRICE DELTA DETECTED — signed, net-of-tax, chain of custody"), never
+a legal verdict. The threshold is the operator's alert knob, **not** a legal
+number; the legal characterisation stays in the separate, unsigned Layer-2 jury
+advisory.
+
+```bash
+# OFFLINE — derive the event (and the query/trigger SQL) from signed facts:
+amber-workflow event samples/live_packet
+#   -> NET_OF_TAX_PRICE_DELTA, net-of-tax delta 10.75 EUR (DE dearer than BE)
+
+# LIVE — register a TriggerWare trigger from a real capture, then poll it once
+# to confirm it FIRES on the signed delta, and render the alert:
+amber-workflow arm samples/live_packet --threshold 1.00
+#   -> created trigger 'amber_apple_airpods_4_...'; poll: added=1 fired=True
+#   -> AMBER BRAND-PROTECTION ALERT (signed FACT, not a verdict)
+
+# LIVE — expose the signed observation as a queryable API row a brand agent polls:
+amber-workflow query samples/live_packet
+
+amber-workflow poll <trigger_name>      # the accumulated delta (event signal)
+amber-workflow list                     # registered triggers
+amber-workflow disarm <trigger_name>    # delete a trigger
+amber-workflow creds                    # secret-free TriggerWare key state
+```
+
+The key is read from `TRIGGERWARE_API_KEY` (env or the gitignored `code/.env`)
+and is **never** printed, logged, or placed in any returned object.
+
+> **Real-API findings (surfaced honestly, not papered over).** TriggerWare's SQL
+> engine compares quoted string literals as strings, so money columns are emitted
+> as **numeric** literals (a quoted `'10.75' > 1.00` errors as "invalid operands
+> for infix operator >"). Its trigger validator rejects bare `NULL`/`TRUE`/`FALSE`
+> literals and starts timing out past ~13 columns, so Amber serialises NULL/bool
+> as well-typed string literals and projects the **compact signal columns** into
+> the trigger; the verbose human prose (the banner, the SKU label) lives on the
+> locally-rendered alert. These are root serialisation fixes, verified live.
+
+### Workflow tests
+
+The workflow suite mocks the TriggerWare API (no live calls in the suite) and
+covers the deterministic event extraction (asserted against the **real** AirPods
+facts → the 10.75 EUR delta), the threshold boundary (delta must strictly exceed
+the threshold), the trigger-SQL construction (numeric money columns, well-typed
+NULL/bool, the compact signal projection), the client (key loading, the API
+surface, errors surfaced not swallowed), and the **boundary** (arming a trigger
+never writes a file into the signed packet, which still verifies GREEN). One
+opt-in live smoke test arms a trigger on the real packet, polls it, asserts it
+fires on the 10.75 EUR delta, and deletes the trigger (cleanup):
+
+```bash
+AMBER_WORKFLOW_LIVE=1 pytest tests/test_workflow_live_smoke.py
+```
+
 ## Tests
 
 ```bash
