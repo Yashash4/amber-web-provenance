@@ -28,7 +28,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 
-from amber.capture import extract, geoattr, identity, softblock, state, vat
+from amber.capture import brightdata, extract, geoattr, identity, softblock, state, vat
 from amber.capture.record import CaptureRecord
 
 FACTS_SCHEMA = "amber/facts@2"
@@ -282,6 +282,25 @@ def build_facts(
     # as a fact rather than asserting it — restraint over claim).
     timestamps = sorted({r.requested_at for r in records})
 
+    # Dispatch simultaneity: the captures are DISPATCHED (launched) concurrently,
+    # so even though each residential fetch takes seconds (making a witnessed
+    # same-second batch physically impossible), the dispatch instants cluster
+    # within a second. We report BOTH honestly: ``same_second_batch`` is the
+    # witnessed-RESPONSE spread (truthful, often false for residential proxies),
+    # and ``dispatched_same_second`` is the launch spread (the defensible
+    # simultaneity claim). The distinct dispatch seconds travel as evidence.
+    #
+    # Records constructed OUTSIDE the capture path (offline floor fixtures) carry
+    # no dispatch stamp; for those the dispatch fact is reported as null (unknown),
+    # never fabricated as true. A PARTIALLY-stamped batch is a real inconsistency
+    # and is surfaced (the strict helper raises).
+    dispatched_seconds = sorted({r.dispatched_at[:19] + "Z" for r in records if r.dispatched_at})
+    n_stamped = sum(1 for r in records if r.dispatched_at)
+    if n_stamped == 0:
+        dispatched_ss: bool | None = None
+    else:
+        dispatched_ss = brightdata.dispatched_same_second(records)
+
     facts = {
         "schema": FACTS_SCHEMA,
         "url": url,
@@ -291,6 +310,8 @@ def build_facts(
         "countries": sorted({r.requested_country.upper() for r in records}),
         "requested_at_values": timestamps,
         "same_second_batch": len(timestamps) == 1,
+        "dispatched_at_values": dispatched_seconds,
+        "dispatched_same_second": dispatched_ss,
         "vat_table_note": (
             "Net-of-tax computed with the committed sourced VAT table "
             "(amber/capture/vat.py); each per-capture fact carries the rate + "

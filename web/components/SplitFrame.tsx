@@ -8,6 +8,39 @@ function countryName(c: string): string {
   return { DE: "Germany", BE: "Belgium", FR: "France", NL: "Netherlands" }[c] ?? c;
 }
 
+/**
+ * The honest simultaneity phrase for the banner, derived from the packet flags.
+ * NEVER claims "same second" / "witnessed same second" when the witnessed
+ * responses span more than a second (residential fetches each take seconds, so a
+ * witnessed-same-second batch is physically impossible). We word it as DISPATCH:
+ *
+ *  - dispatched within the same second → "dispatched the same second across N exits"
+ *  - witnessed responses also within a second → can additionally say "witnessed
+ *    within one second" (rare, but honest when true)
+ *  - neither known → no simultaneity clause at all (never overclaim).
+ */
+function simultaneityClause(view: PacketView, nExits: number): string | null {
+  if (view.dispatchedSameSecond === true) {
+    return `dispatched the same second across ${nExits} residential exit${
+      nExits === 1 ? "" : "s"
+    }`;
+  }
+  if (view.sameSecondBatch) {
+    // Witnessed responses landed within one second (only honest when actually true).
+    return "responses witnessed within one second";
+  }
+  return null;
+}
+
+/** The short header sub-line label for batch timing — dispatch-worded, honest. */
+function batchTimingLabel(view: PacketView): string {
+  if (view.dispatchedSameSecond === true) return "dispatched same-second batch";
+  if (view.dispatchedSameSecond === false)
+    return "dispatch spread > 1s (honestly flagged)";
+  if (view.sameSecondBatch) return "responses within one second";
+  return "multi-second batch (honestly flagged)";
+}
+
 /** One residential session card (one capture / one exit IP). */
 function SessionCard({ pc, primary }: { pc: PerCaptureView; primary: boolean }) {
   return (
@@ -92,8 +125,7 @@ export function SplitFrame({ view }: { view: PacketView }) {
         <h2 className="text-lg font-bold">{view.skuLabel}</h2>
         <div className="text-[11px] text-white/40">
           {view.url} · GTIN {view.canonicalGtin ?? "—"} ({view.gtinConfidence ?? "—"}) ·{" "}
-          {view.sameSecondBatch ? "same-second batch" : "multi-second batch (honestly flagged)"} ·{" "}
-          requested_at {view.requestedAtValues.join(", ")}
+          {batchTimingLabel(view)} · requested_at {view.requestedAtValues.join(", ")}
         </div>
       </header>
 
@@ -116,16 +148,18 @@ export function SplitFrame({ view }: { view: PacketView }) {
  */
 function SignedFactBanner({ view }: { view: PacketView }) {
   const isDenial = Boolean(view.accessDenial);
+  const clause = simultaneityClause(view, view.perCapture.length);
   if (isDenial) {
     return (
       <div className="rounded-md border-2 border-amber bg-amber/15 px-4 py-3">
         <div className="text-sm font-extrabold tracking-wide text-amber">
-          ACCESS / PAYMENT DENIAL DETECTED — signed, same second, chain of custody
+          ACCESS / PAYMENT DENIAL DETECTED — signed
+          {clause ? `, ${clause}` : ""}, chain of custody
         </div>
         <div className="mt-1 text-xs text-white/60">
-          A residential session was refused access/checkout that another country was granted, in
-          the same second, on the same SKU. The signed packet records the fact; a human draws any
-          legal conclusion.
+          A residential session was refused access/checkout that another country was granted
+          {clause ? `, ${clause},` : ""} on the same SKU. The signed packet records the fact; a
+          human draws any legal conclusion.
         </div>
       </div>
     );
@@ -133,7 +167,8 @@ function SignedFactBanner({ view }: { view: PacketView }) {
   return (
     <div className="rounded-md border-2 border-amber bg-amber/15 px-4 py-3">
       <div className="text-sm font-extrabold tracking-wide text-amber">
-        PRICE DELTA DETECTED — signed, net-of-tax, same second, chain of custody
+        PRICE DELTA DETECTED — signed, net-of-tax
+        {clause ? `, ${clause}` : ""}, chain of custody
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <Stat label="gross delta" value={`${view.grossDelta ?? "—"} EUR`} muted />

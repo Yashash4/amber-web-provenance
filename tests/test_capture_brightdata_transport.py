@@ -17,12 +17,15 @@ separately by running the actual ``same_second_batch`` against creds.
 from __future__ import annotations
 
 import ssl
+import threading
+from datetime import UTC, datetime
 
 import pytest
 import requests
 
 from amber.capture import brightdata
 from amber.capture.credentials import BrightDataCredentials
+from amber.capture.record import CaptureRecord
 
 CREDS = BrightDataCredentials(
     mode="proxy",
@@ -313,5 +316,143 @@ def test_capture_one_proxy_mode_builds_record_and_closes_session(monkeypatch):
     assert rec.body == product
     assert rec.headers["content-type"] == "application/json"
     assert fetched_at is not None
+    # capture_one stamps the real dispatch instant (full ms precision, ...Z).
+    assert rec.dispatched_at.endswith("Z") and "T" in rec.dispatched_at
+    brightdata._parse_iso_instant(rec.dispatched_at)  # parses cleanly
     # The session was opened and closed (no leaked connections).
     assert sessions_made and sessions_made[0].closed is True
+
+
+# --------------------------------------------------------------------------- #
+# Concurrent batch dispatch (FIX 1): all captures launched concurrently, distinct
+# sticky sessions preserved, capture_id ordering stable, failures surfaced.
+# These mock capture_one (no network) to assert the batch's concurrency + wiring.
+# --------------------------------------------------------------------------- #
+def test_batch_dispatches_all_captures_concurrently(monkeypatch):
+    """The batch must DISPATCH every capture concurrently (threads), so the launch
+    instants cluster within a second even when each fetch then takes time. We
+    prove concurrency with a barrier: each fake capture_one blocks until all N
+    have STARTED — only possible if they run on distinct threads simultaneously."""
+    n_total = 6  # DE x3 + BE x3
+    barrier = threading.Barrier(n_total, timeout=10)
+    seen_sessions: list[str] = []
+    seen_threads: set[int] = set()
+    lock = threading.Lock()
+
+    def fake_capture_one(creds, url, country, session, capture_id, *, timeout):
+        dispatched = datetime.now(UTC)
+        with lock:
+            seen_sessions.append(session)
+            seen_threads.add(threading.get_ident())
+        # Block until ALL captures have entered: deadlocks (and times out) unless
+        # they were dispatched concurrently.
+        barrier.wait()
+        rec = CaptureRecord(
+            capture_id=capture_id,
+            url=url,
+            requested_country=country.upper(),
+            session_id=session,
+            exit_ip=f"203.0.113.{len(seen_sessions)}",
+            requested_at=brightdata._iso_second(dispatched),
+            http_status=200,
+            headers={"content-type": "application/json"},
+            body=b'{"price":"129.99","currency":"EUR"}',
+            dispatched_at=brightdata._iso_instant(dispatched),
+        )
+        return rec, dispatched
+
+    monkeypatch.setattr(brightdata, "capture_one", fake_capture_one)
+
+    records = brightdata.same_second_batch_per_country_url(
+        CREDS,
+        {"DE": "https://shop.de/p", "BE": "https://shop.be/p"},
+        3,
+    )
+
+    assert len(records) == n_total
+    # Distinct sticky sessions (the within-country control): N distinct tokens.
+    assert len({r.session_id for r in records}) == n_total
+    # Captures ran on multiple threads (truly concurrent dispatch, not a loop).
+    assert len(seen_threads) > 1
+    # Deterministic capture_id ordering, independent of completion order.
+    assert [r.capture_id for r in records] == [
+        "de-01",
+        "de-02",
+        "de-03",
+        "be-01",
+        "be-02",
+        "be-03",
+    ]
+    # Every record carries a dispatch stamp and the batch is dispatched-same-second
+    # (the concurrent launches clustered well within a second).
+    assert all(r.dispatched_at for r in records)
+    assert brightdata.dispatched_same_second(records) is True
+
+
+def test_batch_surfaces_a_worker_failure_naming_country_and_session(monkeypatch):
+    """A failure in ANY concurrent worker must propagate as a CaptureError naming
+    the failing country + session — never a silent or partial batch."""
+
+    def fake_capture_one(creds, url, country, session, capture_id, *, timeout):
+        if capture_id == "be-02":
+            raise brightdata.CaptureError("proxy fetch failed: simulated")
+        dispatched = datetime.now(UTC)
+        rec = CaptureRecord(
+            capture_id=capture_id,
+            url=url,
+            requested_country=country.upper(),
+            session_id=session,
+            exit_ip="203.0.113.1",
+            requested_at=brightdata._iso_second(dispatched),
+            http_status=200,
+            headers={},
+            body=b"{}",
+            dispatched_at=brightdata._iso_instant(dispatched),
+        )
+        return rec, dispatched
+
+    monkeypatch.setattr(brightdata, "capture_one", fake_capture_one)
+
+    with pytest.raises(brightdata.CaptureError) as ei:
+        brightdata.same_second_batch_per_country_url(
+            CREDS, {"DE": "https://shop.de/p", "BE": "https://shop.be/p"}, 2
+        )
+    msg = str(ei.value)
+    assert "BE" in msg and "be-02" in msg
+
+
+def test_batch_rejects_zero_sessions(monkeypatch):
+    monkeypatch.setattr(brightdata, "capture_one", lambda *a, **k: None)
+    with pytest.raises(brightdata.CaptureError):
+        brightdata.same_second_batch_per_country_url(CREDS, {"DE": "https://shop.de/p"}, 0)
+
+
+def test_batch_distinct_sessions_with_a_frozen_clock(monkeypatch):
+    """Session-token distinctness within a batch must come from the (country,index)
+    pair, NOT the wall clock: with the per-batch millisecond stamp frozen, the 3
+    DE exits must still get 3 distinct sticky tokens (the within-country control)."""
+
+    def fake_capture_one(creds, url, country, session, capture_id, *, timeout):
+        dispatched = datetime.now(UTC)
+        rec = CaptureRecord(
+            capture_id=capture_id,
+            url=url,
+            requested_country=country.upper(),
+            session_id=session,
+            exit_ip="203.0.113.1",
+            requested_at=brightdata._iso_second(dispatched),
+            http_status=200,
+            headers={},
+            body=b"{}",
+            dispatched_at=brightdata._iso_instant(dispatched),
+        )
+        return rec, dispatched
+
+    # Freeze the per-batch stamp so distinctness cannot rely on it.
+    monkeypatch.setattr(brightdata.time, "time", lambda: 1748000000.0)
+    monkeypatch.setattr(brightdata, "capture_one", fake_capture_one)
+
+    records = brightdata.same_second_batch_per_country_url(
+        CREDS, {"DE": "https://shop.de/p"}, 3
+    )
+    assert len({r.session_id for r in records}) == 3

@@ -96,6 +96,11 @@ export interface PacketView {
   url: string;
   countries: string[];
   sameSecondBatch: boolean;
+  /** All N captures DISPATCHED (launched) within the same second (the honest
+   * simultaneity claim — witnessed-same-second is impossible with residential
+   * proxies). null when the packet predates dispatch stamping. */
+  dispatchedSameSecond: boolean | null;
+  dispatchedAtValues: string[];
   requestedAtValues: string[];
   canonicalGtin: string | null;
   gtinConfidence: string | null;
@@ -168,6 +173,9 @@ export function loadPacketView(srcDir: string = packetDir()): PacketView {
     url: facts.url ?? "",
     countries: facts.countries ?? [],
     sameSecondBatch: Boolean(facts.same_second_batch),
+    dispatchedSameSecond:
+      typeof facts.dispatched_same_second === "boolean" ? facts.dispatched_same_second : null,
+    dispatchedAtValues: facts.dispatched_at_values ?? [],
     requestedAtValues: facts.requested_at_values ?? [],
     canonicalGtin: facts.sku_identity?.canonical_gtin ?? null,
     gtinConfidence: facts.sku_identity?.confidence ?? null,

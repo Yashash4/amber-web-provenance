@@ -18,8 +18,8 @@ export function WithinCountryControl({ view }: { view: PacketView }) {
           The within-country control
         </div>
         <p className="text-xs text-white/50">
-          Multiple residential IPs per country, same second. Intra-country prices agree; the
-          only thing changed across the cross-country delta is the country.
+          Multiple residential IPs per country, all dispatched the same second. Intra-country
+          prices agree; the only thing changed across the cross-country delta is the country.
         </p>
       </header>
 

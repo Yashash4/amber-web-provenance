@@ -60,6 +60,12 @@ class CaptureRecord:
     headers: dict[str, str] = field(default_factory=dict)
     body: bytes = b""
     proxy_reported_country: str | None = None
+    # ISO-8601 instant the request was DISPATCHED (launched) — distinct from the
+    # response/witness time (``requested_at``). Residential fetches each take
+    # seconds, so witnessed-same-second is physically impossible; the honest
+    # simultaneity claim is that all captures in a batch are DISPATCHED within the
+    # same second (concurrent launch). Empty until set by the capture path.
+    dispatched_at: str = ""
 
     def selected_headers(self) -> dict[str, str]:
         return select_headers(self.headers)

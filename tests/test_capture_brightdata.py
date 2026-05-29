@@ -112,3 +112,112 @@ def test_length_mismatch_is_surfaced_not_swallowed():
 
 def test_empty_batch_is_trivially_same_second():
     assert brightdata.stamp_batch_timestamps([], []) is True
+
+
+# --------------------------------------------------------------------------- #
+# dispatched_same_second: the honest "DISPATCHED within a second" verdict.
+# --------------------------------------------------------------------------- #
+def _rec_dispatched(cid: str, dispatched_at: str, country: str = "DE") -> CaptureRecord:
+    rec = _rec(cid, country)
+    rec.dispatched_at = dispatched_at
+    return rec
+
+
+def test_dispatched_same_second_true_when_launches_cluster():
+    """Concurrent dispatch: launch instants within 1s -> dispatched_same_second."""
+    recs = [
+        _rec_dispatched("a", "2026-05-29T00:00:01.000Z"),
+        _rec_dispatched("b", "2026-05-29T00:00:01.030Z"),
+        _rec_dispatched("c", "2026-05-29T00:00:01.080Z"),
+    ]
+    assert brightdata.dispatched_same_second(recs) is True
+
+
+def test_dispatched_same_second_true_across_a_second_boundary():
+    """A 0.2s dispatch spread straddling a boundary is still same-second."""
+    recs = [
+        _rec_dispatched("a", "2026-05-29T00:00:01.900Z"),
+        _rec_dispatched("b", "2026-05-29T00:00:02.100Z"),
+    ]
+    assert brightdata.dispatched_same_second(recs) is True
+
+
+def test_dispatched_same_second_false_when_launches_span_over_a_second():
+    """Sequential dispatch (the OLD behaviour) spreads over a second -> false,
+    surfaced honestly rather than overclaimed."""
+    recs = [
+        _rec_dispatched("a", "2026-05-29T00:00:01.000Z"),
+        _rec_dispatched("b", "2026-05-29T00:00:03.500Z"),
+    ]
+    assert brightdata.dispatched_same_second(recs) is False
+
+
+def test_dispatched_same_second_exactly_one_second_is_inclusive():
+    recs = [
+        _rec_dispatched("a", "2026-05-29T00:00:01.000Z"),
+        _rec_dispatched("b", "2026-05-29T00:00:02.000Z"),
+    ]
+    assert brightdata.dispatched_same_second(recs) is True
+
+
+def test_dispatched_same_second_just_over_one_second_is_false():
+    recs = [
+        _rec_dispatched("a", "2026-05-29T00:00:01.000Z"),
+        _rec_dispatched("b", "2026-05-29T00:00:02.001Z"),
+    ]
+    assert brightdata.dispatched_same_second(recs) is False
+
+
+def test_dispatched_same_second_empty_is_trivially_true():
+    assert brightdata.dispatched_same_second([]) is True
+
+
+def test_dispatched_same_second_missing_stamp_is_surfaced_not_assumed():
+    """A record with no dispatch stamp must RAISE — never silently read as true
+    (that would fabricate a simultaneity claim)."""
+    recs = [
+        _rec_dispatched("a", "2026-05-29T00:00:01.000Z"),
+        _rec("b"),  # no dispatched_at
+    ]
+    with pytest.raises(brightdata.CaptureError):
+        brightdata.dispatched_same_second(recs)
+
+
+# --------------------------------------------------------------------------- #
+# The floor surfaces the dispatch fact honestly (both true and unknown cases).
+# --------------------------------------------------------------------------- #
+def test_floor_reports_dispatched_same_second_true_and_lists_seconds():
+    recs = [
+        _rec_dispatched("de-01", "2026-05-29T00:00:01.000Z", "DE"),
+        _rec_dispatched("be-01", "2026-05-29T00:00:01.050Z", "BE"),
+    ]
+    facts = floor.build_facts(URL, recs)
+    assert facts["dispatched_same_second"] is True
+    assert facts["dispatched_at_values"] == ["2026-05-29T00:00:01Z"]
+
+
+def test_floor_reports_dispatched_same_second_false_with_distinct_seconds():
+    recs = [
+        _rec_dispatched("de-01", "2026-05-29T00:00:01.000Z", "DE"),
+        _rec_dispatched("be-01", "2026-05-29T00:00:05.000Z", "BE"),
+    ]
+    facts = floor.build_facts(URL, recs)
+    assert facts["dispatched_same_second"] is False
+    assert facts["dispatched_at_values"] == [
+        "2026-05-29T00:00:01Z",
+        "2026-05-29T00:00:05Z",
+    ]
+
+
+def test_floor_dispatch_fact_is_null_when_no_stamps_present():
+    """Offline floor fixtures carry no dispatch stamp; the fact is null (unknown),
+    never fabricated as true."""
+    facts = floor.build_facts(URL, [_rec("a"), _rec("b")])
+    assert facts["dispatched_same_second"] is None
+    assert facts["dispatched_at_values"] == []
+
+
+def test_floor_dispatch_fact_partial_stamp_is_surfaced():
+    recs = [_rec_dispatched("a", "2026-05-29T00:00:01.000Z"), _rec("b")]
+    with pytest.raises(brightdata.CaptureError):
+        floor.build_facts(URL, recs)

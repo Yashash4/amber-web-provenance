@@ -46,11 +46,13 @@ pending) — it NEVER fabricates a body, an IP, or a country.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import ssl
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -73,6 +75,13 @@ SUPERPROXY_PORT = 33335
 # never disabled. Sourced from https://brightdata.com/static/brightdata_proxy_ca.zip
 # (CN="Bright Data Proxy Root CA", valid through 2034-09-14).
 BRIGHTDATA_CA_PATH = Path(__file__).resolve().parent / "data" / "brightdata_proxy_ca.crt"
+
+# SHA256 of the committed CA file (computed over the exact shipped bytes). The CA
+# is loaded into the TLS trust store, so a substituted CA file would silently
+# widen what the forensic instrument trusts. We PIN the hash and refuse to load a
+# CA whose bytes do not match — a substituted/tampered CA fails closed (raise),
+# never silently trusted. Re-pin deliberately (and review) if BD rotates the root.
+BRIGHTDATA_CA_SHA256 = "db99f2797091440ae3da9751839736e468ed33eb2bdcac136b59be02237f929e"
 
 # A stable IP-echo endpoint reachable through the proxy to discover the exit IP.
 # geo.brdtest.com/welcome.txt?product=resi returns the exit IP + geo Bright Data
@@ -100,6 +109,16 @@ class _ProxyResult:
     status: int
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True)
+class _CapturePlan:
+    """One planned capture: its country, URL, distinct sticky session, and id."""
+
+    country: str
+    url: str
+    session: str
+    capture_id: str
 
 
 class _BrightDataTLSAdapter(HTTPAdapter):
@@ -142,12 +161,35 @@ class _BrightDataTLSAdapter(HTTPAdapter):
 
 @lru_cache(maxsize=1)
 def _brightdata_ca_data() -> str:
-    """The committed Bright Data CA PEM text (read once, cached)."""
+    """The committed Bright Data CA PEM text (read once, cached, hash-pinned).
+
+    The CA bytes are SHA256-verified against :data:`BRIGHTDATA_CA_SHA256` BEFORE
+    they are trusted: the CA gets loaded into the TLS trust store, so silently
+    accepting a substituted CA file would widen what this forensic instrument
+    trusts. A hash mismatch fails CLOSED (raises) rather than trusting an
+    unexpected root — the verification stays ON guarantee extends to the CA file
+    itself, not just the handshake.
+    """
     try:
-        return BRIGHTDATA_CA_PATH.read_text(encoding="ascii")
+        raw = BRIGHTDATA_CA_PATH.read_bytes()
     except OSError as exc:  # pragma: no cover - the cert is shipped with the package
         raise CaptureError(
             f"Bright Data CA certificate missing at {BRIGHTDATA_CA_PATH}: {exc}"
+        ) from exc
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != BRIGHTDATA_CA_SHA256:
+        raise CaptureError(
+            "Bright Data CA certificate hash mismatch: refusing to trust a CA whose "
+            f"bytes do not match the pinned SHA256. expected {BRIGHTDATA_CA_SHA256}, "
+            f"got {actual} (file {BRIGHTDATA_CA_PATH}). If Bright Data rotated the "
+            "root, re-pin BRIGHTDATA_CA_SHA256 deliberately after verifying the new "
+            "cert's provenance."
+        )
+    try:
+        return raw.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise CaptureError(
+            f"Bright Data CA certificate at {BRIGHTDATA_CA_PATH} is not ASCII PEM: {exc}"
         ) from exc
 
 
@@ -333,9 +375,16 @@ def capture_one(
     returns ``(record, fetched_at)`` where ``fetched_at`` is the REAL wall-clock
     instant the product fetch completed. The record's ``requested_at`` is filled
     in by the batch (it is the same-second-batch stamp); ``fetched_at`` is the
-    raw per-capture truth the batch uses to compute the honest spread. Raises
-    CaptureError on a real failure (never returns a fabricated record).
+    raw per-capture truth the batch uses to compute the honest spread.
+
+    The record's ``dispatched_at`` is stamped HERE, at the real instant this
+    capture is launched (before any network work) — so when the batch dispatches
+    all captures concurrently, the dispatch instants cluster within a second even
+    though each fetch then takes seconds. That is the honest simultaneity claim:
+    DISPATCHED same second, not witnessed same second. Raises CaptureError on a
+    real failure (never returns a fabricated record).
     """
+    dispatched_at = datetime.now(UTC)
     if creds.mode == "proxy":
         sess = _build_proxy_session(creds, country, session)
         try:
@@ -366,6 +415,11 @@ def capture_one(
         headers=res.headers,
         body=res.body,
         proxy_reported_country=proxy_country,
+        # The real instant this capture was launched (see docstring), at full
+        # precision so the batch dispatched_same_second verdict (max - min <= 1s)
+        # is computed accurately. The batch reads these back off the records to
+        # compute and stamp the canonical dispatch second.
+        dispatched_at=_iso_instant(dispatched_at),
     )
     return record, fetched_at
 
@@ -373,6 +427,48 @@ def capture_one(
 def _iso_second(ts: datetime) -> str:
     """ISO-8601 ``...Z`` second-truncated stamp for a UTC instant."""
     return ts.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _iso_instant(ts: datetime) -> str:
+    """ISO-8601 ``...Z`` MILLISECOND-precision stamp for a UTC instant.
+
+    Used for ``dispatched_at`` so the batch dispatch spread (max - min) is
+    computed accurately. The displayed dispatch FACT is second-truncated, but the
+    stored value keeps sub-second precision so the <= 1s verdict is honest.
+    """
+    return ts.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _parse_iso_instant(value: str) -> datetime:
+    """Parse a ``_iso_instant``/``_iso_second`` stamp back to an aware datetime."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def dispatched_same_second(records: list[CaptureRecord]) -> bool:
+    """The honest simultaneity verdict: were all captures DISPATCHED within 1s?
+
+    Residential proxy fetches each take seconds, so a witnessed-same-second batch
+    is physically impossible. The defensible claim is that the requests were
+    LAUNCHED within the same second — which the concurrent dispatch achieves. This
+    reads each record's full-precision ``dispatched_at`` and returns whether the
+    spread (max - min) is <= 1s. Pure / deterministic given the records, so it is
+    unit-tested with injected dispatch stamps (no live Bright Data required).
+
+    Raises CaptureError if any record is missing a dispatch stamp (a record built
+    outside the capture path) — never silently treats a missing stamp as true.
+    """
+    if not records:
+        return True
+    stamps: list[datetime] = []
+    for rec in records:
+        if not rec.dispatched_at:
+            raise CaptureError(
+                f"capture {rec.capture_id!r} has no dispatched_at; cannot compute "
+                "dispatched_same_second honestly"
+            )
+        stamps.append(_parse_iso_instant(rec.dispatched_at))
+    spread_seconds = (max(stamps) - min(stamps)).total_seconds()
+    return spread_seconds <= 1.0
 
 
 def stamp_batch_timestamps(
@@ -453,23 +549,61 @@ def same_second_batch_per_country_url(
     if not country_urls:
         raise CaptureError("same_second_batch_per_country_url: no country->URL mapping given")
 
-    records: list[CaptureRecord] = []
-    fetched_at: list[datetime] = []
-    for country in country_urls:
-        url = country_urls[country]
+    # Build the per-capture plan: distinct sticky session + capture_id per
+    # (country, index). The (country, index) pair already makes every token in a
+    # batch DISTINCT (=> a distinct residential exit, the within-country control);
+    # a per-batch millisecond stamp makes a fresh RUN draw fresh sticky exits
+    # rather than reusing the previous run's IPs.
+    batch_stamp = int(time.time() * 1000)
+    plan: list[_CapturePlan] = []
+    for country, url in country_urls.items():
         for i in range(sessions_per_country):
-            session = f"amber-{country.lower()}-{i + 1}-{int(time.time() * 1000)}"
-            capture_id = f"{country.lower()}-{i + 1:02d}"
-            rec, ts = capture_one(
-                creds,
-                url,
-                country,
-                session,
-                capture_id,
-                timeout=timeout,
+            plan.append(
+                _CapturePlan(
+                    country=country,
+                    url=url,
+                    session=f"amber-{country.lower()}-{i + 1}-{batch_stamp}",
+                    capture_id=f"{country.lower()}-{i + 1:02d}",
+                )
             )
-            records.append(rec)
-            fetched_at.append(ts)
+
+    if not plan:
+        raise CaptureError(
+            "same_second_batch_per_country_url: sessions_per_country must be >= 1 "
+            f"(got {sessions_per_country})"
+        )
+
+    def _run(item: _CapturePlan) -> tuple[CaptureRecord, datetime]:
+        try:
+            return capture_one(
+                creds, item.url, item.country, item.session, item.capture_id, timeout=timeout
+            )
+        except CaptureError as exc:
+            # Name the failing country + session — never a silent drop.
+            raise CaptureError(
+                f"capture failed for {item.country} session {item.session} "
+                f"({item.capture_id}): {exc}"
+            ) from exc
+
+    # Dispatch ALL captures CONCURRENTLY. Each capture_one is I/O-bound (proxy
+    # discover + fetch), so threads launch the requests near-simultaneously: every
+    # capture stamps its OWN dispatched_at at the instant its thread starts, and
+    # those instants cluster within a second even though each fetch then takes
+    # seconds. This is the honest "DISPATCHED same second" claim — distinct sticky
+    # sessions are preserved (one per plan entry), so the within-country control is
+    # intact. A failure in any worker propagates (first exception wins) — never a
+    # fabricated or partial-but-silent batch.
+    results: dict[str, tuple[CaptureRecord, datetime]] = {}
+    with ThreadPoolExecutor(max_workers=len(plan)) as pool:
+        futures = {pool.submit(_run, item): item for item in plan}
+        for fut, item in futures.items():
+            results[item.capture_id] = fut.result()
+
+    # Re-assemble in deterministic capture_id order (independent of completion
+    # order) so the batch output is stable run-to-run.
+    ordered = [results[item.capture_id] for item in plan]
+    records = [rec for rec, _ts in ordered]
+    fetched_at = [ts for _rec, ts in ordered]
 
     stamp_batch_timestamps(records, fetched_at)
     return records
