@@ -246,13 +246,20 @@ def cross_country_comparison(facts: list[PerCaptureFact]) -> dict:
 
 
 def build_facts(
-    url: str,
+    url: str | dict[str, str],
     records: list[CaptureRecord],
     *,
     category: str = vat.CATEGORY_STANDARD,
     sku_label: str | None = None,
 ) -> dict:
     """Build the complete ``facts.json`` dict from a batch of capture records.
+
+    ``url`` is either a single string (the geo-IP single-URL case, one URL whose
+    content varies by visitor country) OR a ``{country: url}`` map (the
+    domain-per-country storefront case, e.g. ``{"DE": ".../de/...", "BE":
+    ".../be/..."}`` — the same GTIN on two ccTLD storefronts). It is recorded
+    verbatim in ``facts["url"]`` so a verifier sees exactly what was fetched per
+    country; each capture's own URL is also recorded per-record in the manifest.
 
     The returned dict is the Layer-1 signed-facts artifact (schema
     ``amber/facts@2``). Pass it, with the same records' bodies, to

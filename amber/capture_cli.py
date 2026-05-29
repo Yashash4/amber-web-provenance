@@ -51,15 +51,43 @@ def _cmd_creds(_args: argparse.Namespace) -> int:
     return 0 if state["present"] else 1
 
 
+def _parse_country_urls(pairs: list[str]) -> dict[str, str]:
+    """Parse repeated ``CC=URL`` ``--country-url`` options into a {country: url} map.
+
+    Used for the domain-per-country storefront case (same GTIN on two ccTLD
+    stores). The ``=`` splits on the FIRST ``=`` only, so URLs with query strings
+    survive. An empty/invalid entry is a hard error (no silent drop).
+    """
+    out: dict[str, str] = {}
+    for raw in pairs:
+        if "=" not in raw:
+            raise ValueError(f"--country-url expects CC=URL, got {raw!r}")
+        cc, url = raw.split("=", 1)
+        cc = cc.strip().upper()
+        url = url.strip()
+        if not cc or not url:
+            raise ValueError(f"--country-url has empty country or URL: {raw!r}")
+        out[cc] = url
+    return out
+
+
 def _cmd_capture(args: argparse.Namespace) -> int:
     countries = [c.strip().upper() for c in args.countries.split(",") if c.strip()]
+    country_urls = _parse_country_urls(args.country_url) if args.country_url else None
+    if country_urls is None and not args.url:
+        sys.stderr.write(
+            "capture: provide a positional URL (geo-IP single-URL case) OR one or "
+            "more --country-url CC=URL (domain-per-country storefront case).\n"
+        )
+        return 2
     key = _load_signing_key()
     result = harness.run(
         args.out,
-        args.url,
+        args.url or "",
         countries,
         args.sessions,
         key,
+        country_urls=country_urls,
         category=args.category,
         sku_label=args.sku_label,
         trusted_pubkeys=_trusted_pubkeys(),
@@ -100,7 +128,22 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_cap = sub.add_parser("capture", help="capture one URL across countries -> signed packet")
-    p_cap.add_argument("url", help="the product URL to capture")
+    p_cap.add_argument(
+        "url",
+        nargs="?",
+        default=None,
+        help="the product URL to capture (geo-IP single-URL case). Omit when using "
+        "--country-url for the domain-per-country storefront case.",
+    )
+    p_cap.add_argument(
+        "--country-url",
+        action="append",
+        default=[],
+        metavar="CC=URL",
+        help="per-country storefront URL (repeatable), e.g. --country-url "
+        "DE=https://www.mediamarkt.de/... --country-url BE=https://www.mediamarkt.be/... "
+        "for the same GTIN on two ccTLD stores. Overrides the positional URL.",
+    )
     p_cap.add_argument(
         "--out", default=str(REPO / "samples" / "live_packet"), help="packet out dir"
     )

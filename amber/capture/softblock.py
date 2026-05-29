@@ -28,44 +28,77 @@ from dataclasses import dataclass, field
 # response rather than a genuine product-availability answer.
 _SOFT_BLOCK_STATUSES = {429, 403, 503}
 
-# Vendor / challenge markers commonly present in anti-bot interstitials. Matched
-# case-insensitively against the decoded body and against header values. These
-# are deliberately specific strings, not generic words, to keep false positives
-# low.
+# DECISIVE body markers: phrases that appear ONLY on an actual challenge /
+# block INTERSTITIAL, never on a fully-served product page. Matched
+# case-insensitively against the decoded body. Each of these is the page TELLING
+# the visitor it is a challenge ("verifying you are human", "just a moment...",
+# the explicit challenge form id ``cf-chl-``), so any one of them is a soft-block
+# on its own.
+#
+# Root-cause note (why this list is short): a served page routinely *references*
+# anti-bot tooling without BEING a challenge — Cloudflare injects its
+# ``/cdn-cgi/challenge-platform`` Turnstile/JS-detections script into normal 200
+# pages, the word "captcha" appears in privacy copy or a reCAPTCHA-enterprise
+# script tag behind a contact form, and DataDome/Akamai/PerimeterX cookie/script
+# tokens (``_abck``, ``_px``, ``datadome``) sit in the markup of fully-served
+# pages. Treating those bare substrings as decisive flagged real 1.2 MB product
+# pages (with a real schema.org price + GTIN) as "soft-blocked" — a false
+# positive. They are demoted to WEAK markers below (corroborating only).
 _BODY_MARKERS = (
     "cf-challenge",
-    "cf-chl-",
-    "challenge-platform",  # Cloudflare challenge bundle path
-    "/cdn-cgi/challenge-platform",
+    "cf-chl-",  # Cloudflare challenge form/script id (challenge page only)
     "just a moment",  # Cloudflare interstitial title
     "attention required",  # Cloudflare 1020/block title
-    "captcha",
-    "g-recaptcha",
+    "g-recaptcha",  # an actually-rendered reCAPTCHA widget
     "h-captcha",
     "hcaptcha",
-    "px-captcha",  # PerimeterX
-    "_px",  # PerimeterX cookie/script token
-    "datadome",  # DataDome
-    "imperva",
-    "incapsula",  # Imperva/Incapsula
-    "akamai",  # Akamai Bot Manager (with the script marker below)
-    "_abck",  # Akamai Bot Manager cookie name appearing in body
+    "px-captcha",  # PerimeterX rendered challenge
     "are you a robot",
     "enable javascript and cookies",
     "verifying you are human",
+    "checking your browser before",  # DDoS-Guard / CF interstitial line
     "unusual traffic",  # Google-style rate-limit interstitial
-    "access denied",
     "request blocked",
     "bot detection",
 )
 
-# Header markers (header-name or header-value substrings, lower-cased).
+# WEAK body markers: anti-bot vendor SCRIPT/COOKIE tokens (and the generic word
+# "captcha") that legitimately appear in the markup of FULLY-SERVED pages. These
+# never decide a soft-block alone; they only corroborate one when paired with a
+# block STATUS or a degenerate body. (Without that pairing, a real product page
+# behind Cloudflare/DataDome/Akamai would be wrongly ruled INCONCLUSIVE.)
+_WEAK_BODY_MARKERS = (
+    "challenge-platform",  # CF Turnstile/JS-detections script on normal pages too
+    "/cdn-cgi/challenge-platform",
+    "captcha",  # bare word: privacy copy, reCAPTCHA-enterprise script refs, etc.
+    "_px",  # PerimeterX cookie/script token
+    "datadome",  # DataDome script/cookie present on served pages
+    "imperva",
+    "incapsula",
+    "akamai",
+    "_abck",  # Akamai Bot Manager cookie name in the markup
+    "access denied",  # appears in copy; decisive only with a block status
+)
+
+# PRIMARY header markers: header substrings (lower-cased) that appear ONLY on a
+# challenge / block response, not on a fully-served page. ``cf-mitigated`` is
+# Cloudflare's challenge-response header; ``x-datadome``/``x-iinfo`` are the
+# DataDome / Imperva block markers.
 _HEADER_MARKERS = (
     "cf-mitigated",  # Cloudflare challenge response header
     "x-datadome",
     "x-iinfo",  # Imperva/Incapsula info header
+)
+
+# WEAK header markers: pure CDN-IDENTITY headers present on EVERY page that CDN
+# serves (a 200-OK product page included). ``server: cloudflare`` and ``x-cdn``
+# say "this site is behind a CDN", NOT "this response is a block" — so on their
+# own they must not force INCONCLUSIVE (the false positive observed live: a real
+# 200 MediaMarkt product page carries ``Server: cloudflare``). They corroborate
+# only when a PRIMARY signal already fired.
+_WEAK_HEADER_MARKERS = (
+    "server: cloudflare",
     "x-cdn",
-    "server: cloudflare",  # combined with a block status, corroborates
 )
 
 # A retry-after header strongly implies throttling.
@@ -110,19 +143,26 @@ def detect(
 ) -> SoftBlockResult:
     """Deterministically detect an anti-bot / soft-block response.
 
-    Decision rule (root, not heuristic-soup):
-      - A soft-block STATUS (429/403/503) is itself a soft-block signal.
-      - A Retry-After header is a soft-block signal.
-      - Any known vendor/challenge marker in the body or headers is a signal.
-      - A degenerate (tiny) body is a *corroborating* signal that only counts
-        when at least one other signal is present (never decides alone).
-    The capture is soft-blocked iff at least one non-corroborating signal fired
-    (or a corroborating signal is backed by another). This keeps a legitimately
-    small 200 OK API body from being mislabeled, while catching real challenges.
+    Decision rule (root, not heuristic-soup) — PRIMARY signals decide a block;
+    WEAK signals only corroborate one:
+      - A soft-block STATUS (429/403/503) is a PRIMARY signal.
+      - A Retry-After header is a PRIMARY signal (throttling).
+      - A header vendor block-marker (e.g. ``cf-mitigated``) is a PRIMARY signal.
+      - A DECISIVE body marker (an actual challenge title / rendered CAPTCHA
+        widget / "verifying you are human") is a PRIMARY signal.
+      - A WEAK body marker (an anti-bot vendor SCRIPT/COOKIE token, or the bare
+        word "captcha") is CORROBORATING ONLY — it appears in the markup of
+        fully-served pages, so it counts only when a PRIMARY signal also fired.
+      - A degenerate (tiny) body is CORROBORATING ONLY (never decides alone).
+    The capture is soft-blocked iff at least one PRIMARY signal fired. This keeps
+    a real product page that merely embeds a Cloudflare/DataDome/Akamai script (a
+    1.2 MB 200 OK with a genuine schema.org price + GTIN) from being mislabeled,
+    while still catching real challenges, blocks, and throttles.
     """
     signals: list[str] = []
     headers_lc = {k.lower(): str(v).lower() for k, v in headers.items()}
 
+    # --- PRIMARY signals (any one decides a soft-block) --------------------- #
     # 1. Status-based.
     if http_status in _SOFT_BLOCK_STATUSES:
         signals.append(f"http_status={http_status}")
@@ -137,20 +177,29 @@ def detect(
         if marker in header_blob:
             signals.append(f"header-marker:{marker}")
 
-    # 4. Body vendor/challenge markers.
+    # 4. Decisive body markers (challenge-interstitial-only phrases).
     text = _decode_body(body)
     for marker in _BODY_MARKERS:
         if marker in text:
             signals.append(f"body-marker:{marker}")
 
-    # 5. Degenerate body — corroborating only.
-    degenerate = len(body) < _DEGENERATE_BODY_BYTES
     has_primary = len(signals) > 0
-    if degenerate and has_primary:
+
+    # --- CORROBORATING signals (recorded only when a PRIMARY signal fired) -- #
+    # Weak vendor script/cookie tokens + CDN-identity headers: present on served
+    # pages too, so they are logged for the audit trail but only when a real block
+    # is already indicated.
+    if has_primary:
+        weak_header_hits = [m for m in _WEAK_HEADER_MARKERS if m in header_blob]
+        signals.extend(f"weak-header-marker:{m}" for m in weak_header_hits)
+        weak_body_hits = [m for m in _WEAK_BODY_MARKERS if m in text]
+        signals.extend(f"weak-body-marker:{m}" for m in weak_body_hits)
+
+    # Degenerate body — corroborating only.
+    if len(body) < _DEGENERATE_BODY_BYTES and has_primary:
         signals.append(f"degenerate-body:{len(body)}B")
 
-    is_blocked = has_primary
-    return SoftBlockResult(is_soft_blocked=is_blocked, signals=signals)
+    return SoftBlockResult(is_soft_blocked=has_primary, signals=signals)
 
 
 # A small set of regexes that detect explicit *geo-reason* language. The floor

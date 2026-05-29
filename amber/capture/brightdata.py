@@ -420,35 +420,43 @@ def stamp_batch_timestamps(
     return same_second
 
 
-def same_second_batch(
+def same_second_batch_per_country_url(
     creds: BrightDataCredentials,
-    url: str,
-    countries: list[str],
+    country_urls: dict[str, str],
     sessions_per_country: int,
     *,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> list[CaptureRecord]:
-    """Capture ``url`` from every country x N sticky sessions in one batch.
+    """Capture, per country, ITS OWN storefront URL x N sticky sessions, one batch.
 
-    Each capture is stamped with its REAL fetch wall-clock time. The actual
-    batch spread (max - min of those real instants) decides the same-second
-    claim: a spread <= 1s makes every record share one canonical second (the
-    floor reports ``same_second_batch=true`` truthfully); a spread > 1s leaves
-    each record on its own real second so the floor reports
-    ``same_second_batch=false``. The wall-clock fetches are sequential —
-    residential proxy fetches cannot be truly simultaneous from one process — and
-    a batch that spans more than a second is reported honestly, never hidden.
+    ``country_urls`` maps an ISO-2 country to the exact URL to fetch from THAT
+    country's residential exits. This is the domain-per-country storefront case
+    (the intra-EU norm: a German shopper sees ``mediamarkt.de``, a Belgian shopper
+    sees ``mediamarkt.be`` — the same GTIN, two ccTLD storefronts). Each country's
+    N distinct sticky sessions hit that country's URL from N distinct in-country
+    residential exits (the within-country control). The geo claim is honest: the
+    capture of the ``.de`` store is witnessed from a real German residential IP,
+    the ``.be`` store from a real Belgian one.
 
-    Raises CredentialsMissing if no creds (the caller/harness reports the pending
-    live step); raises CaptureError on a real per-capture failure after recording
-    which session failed.
+    The geo-IP single-URL case (one URL whose CONTENT varies by visitor country)
+    is :func:`same_second_batch`, which is this function with every country mapped
+    to the same URL. Both share the identical same-second stamping discipline:
+    each capture keeps its REAL fetch instant, and the actual batch spread decides
+    the same-second verdict (<= 1s -> one canonical second; > 1s -> each record on
+    its own real second, ``same_second_batch=false`` surfaced, never hidden).
+
+    Raises CredentialsMissing if no creds; CaptureError on a real per-capture
+    failure (the failing country + session are named).
     """
     if creds is None:
         raise CredentialsMissing("no Bright Data credentials available for capture")
+    if not country_urls:
+        raise CaptureError("same_second_batch_per_country_url: no country->URL mapping given")
 
     records: list[CaptureRecord] = []
     fetched_at: list[datetime] = []
-    for country in countries:
+    for country in country_urls:
+        url = country_urls[country]
         for i in range(sessions_per_country):
             session = f"amber-{country.lower()}-{i + 1}-{int(time.time() * 1000)}"
             capture_id = f"{country.lower()}-{i + 1:02d}"
@@ -465,3 +473,38 @@ def same_second_batch(
 
     stamp_batch_timestamps(records, fetched_at)
     return records
+
+
+def same_second_batch(
+    creds: BrightDataCredentials,
+    url: str,
+    countries: list[str],
+    sessions_per_country: int,
+    *,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> list[CaptureRecord]:
+    """Capture ``url`` from every country x N sticky sessions in one batch.
+
+    The geo-IP single-URL case: ONE URL whose served content varies by the
+    visitor's country. Each capture is stamped with its REAL fetch wall-clock
+    time. The actual batch spread (max - min of those real instants) decides the
+    same-second claim: a spread <= 1s makes every record share one canonical
+    second (the floor reports ``same_second_batch=true`` truthfully); a spread
+    > 1s leaves each record on its own real second so the floor reports
+    ``same_second_batch=false``. The wall-clock fetches are sequential —
+    residential proxy fetches cannot be truly simultaneous from one process — and
+    a batch that spans more than a second is reported honestly, never hidden.
+
+    For the domain-per-country storefront case (a different URL per country, same
+    GTIN) use :func:`same_second_batch_per_country_url`.
+
+    Raises CredentialsMissing if no creds (the caller/harness reports the pending
+    live step); raises CaptureError on a real per-capture failure after recording
+    which session failed.
+    """
+    return same_second_batch_per_country_url(
+        creds,
+        {country: url for country in countries},
+        sessions_per_country,
+        timeout=timeout,
+    )

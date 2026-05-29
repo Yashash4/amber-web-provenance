@@ -1,0 +1,1 @@
+{"algorithm":"ed25519","public_key":"f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8","schema":"amber/signature@1","signature":"ea03bb2dd1d33a7df70f2b49e5f6a8fab3a958faef988f8eb2aae881a1d58e37f7c73dce3a0cc38894cfaa151da2577431f414af8ccbf48d22f2cb464e485308","signed_over":"merkle_root_raw_bytes"}

@@ -74,3 +74,39 @@ def test_geo_reason_text_detected_but_separate_from_softblock():
 def test_geo_reason_text_on_challenge_page_still_softblocked():
     body = CAPTCHA_PAGE + b"not available in your region"
     assert softblock.detect(200, {}, body).is_soft_blocked is True
+
+
+# A fully-SERVED product page that merely REFERENCES anti-bot tooling — the
+# real-world false-positive observed on the first live MediaMarkt capture: a
+# 1.2 MB 200-OK product page behind Cloudflare embeds the
+# ``/cdn-cgi/challenge-platform`` script and the bare word "captcha" (privacy
+# copy / a reCAPTCHA-enterprise script ref), yet is the genuine product page
+# (real schema.org price + GTIN). These weak script/word tokens must NOT, on a
+# 200 with real content, force INCONCLUSIVE.
+SERVED_PRODUCT_WITH_ANTIBOT_SCRIPTS = (
+    b"<html><head>"
+    b"<script src='/cdn-cgi/challenge-platform/h/g/scripts/jsd/main.js'></script>"
+    b"<script src='https://www.google.com/recaptcha/enterprise.js'></script>"
+    b"</head><body>"
+    b'<script type="application/ld+json">{"@type":"Product","name":"AirPods 4",'
+    b'"gtin13":"0195949689673","offers":{"@type":"Offer","price":"179",'
+    b'"priceCurrency":"EUR","availability":"https://schema.org/InStock"}}</script>'
+    b"<p>By continuing you accept our cookie and captcha policy.</p>"
+    b"<!-- datadome _abck _px akamai imperva tokens in markup -->"
+    b"</body></html>"
+)
+
+
+def test_served_product_page_referencing_antibot_tooling_is_not_soft_blocked():
+    r = softblock.detect(200, {"content-type": "text/html"}, SERVED_PRODUCT_WITH_ANTIBOT_SCRIPTS)
+    assert r.is_soft_blocked is False, r.signals
+    # No PRIMARY signal -> no weak markers recorded either (they corroborate only).
+    assert r.signals == []
+
+
+def test_weak_marker_corroborates_only_when_a_block_status_is_present():
+    # The SAME weak tokens, now on a 403 block, ARE recorded as corroboration.
+    r = softblock.detect(403, {}, SERVED_PRODUCT_WITH_ANTIBOT_SCRIPTS)
+    assert r.is_soft_blocked is True
+    assert "http_status=403" in r.signals
+    assert any(s.startswith("weak-body-marker:") for s in r.signals)

@@ -52,7 +52,7 @@ class HarnessResult:
 
 def seal_from_records(
     out_dir: str | Path,
-    url: str,
+    url: str | dict[str, str],
     records: list[CaptureRecord],
     private_key_hex: str,
     *,
@@ -95,12 +95,21 @@ def run(
     sessions_per_country: int,
     private_key_hex: str | None,
     *,
+    country_urls: dict[str, str] | None = None,
     category: str = vat.CATEGORY_STANDARD,
     sku_label: str | None = None,
     trusted_pubkeys: set[str] | None = None,
     timeout: int = brightdata.DEFAULT_TIMEOUT,
 ) -> HarnessResult:
     """Run the full live pipeline if creds are present; else report pending.
+
+    Two capture shapes:
+      * geo-IP single-URL (default): fetch ``url`` from every country in
+        ``countries`` (one URL, content varies by visitor country).
+      * domain-per-country storefronts: pass ``country_urls`` ({country: url}) to
+        fetch each country's OWN storefront URL from that country's residential
+        exits (same GTIN, two ccTLD stores — the intra-EU norm). When given,
+        ``country_urls`` takes precedence and ``url``/``countries`` are ignored.
 
     Returns a :class:`HarnessResult`. ``ran_live`` is False with a clear message
     when BD credentials are absent (the one pending step) — never a fabricated
@@ -132,12 +141,19 @@ def run(
             "(creds are present). Pass private_key_hex (env AMBER_SIGNING_KEY)."
         )
 
-    records = brightdata.same_second_batch(
-        creds, url, countries, sessions_per_country, timeout=timeout
-    )
+    if country_urls:
+        records = brightdata.same_second_batch_per_country_url(
+            creds, country_urls, sessions_per_country, timeout=timeout
+        )
+        facts_url: str | dict[str, str] = dict(country_urls)
+    else:
+        records = brightdata.same_second_batch(
+            creds, url, countries, sessions_per_country, timeout=timeout
+        )
+        facts_url = url
     sealed = seal_from_records(
         out_dir,
-        url,
+        facts_url,
         records,
         private_key_hex,
         category=category,
