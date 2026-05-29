@@ -145,6 +145,27 @@ def _delete_capture_body(pkt: Path) -> str:
     return "be-01"
 
 
+def _downgrade_signature_algorithm(pkt: Path) -> str:
+    """(robustness) Self-describe a non-ed25519 signature algorithm.
+
+    An algorithm-confusion / downgrade attempt: the bytes still verify under our
+    hardcoded ed25519 recompute, but the packet now CLAIMS a different scheme.
+    The verifier must fail closed rather than silently verify under ed25519.
+    """
+    sig = read_json(pkt / SIGNATURE_FILE)
+    sig["algorithm"] = "none"
+    write_json_canonical(pkt / SIGNATURE_FILE, sig)
+    return SIGNATURE_FILE
+
+
+def _downgrade_hash_algorithm(pkt: Path) -> str:
+    """(robustness) Self-describe a weak/different hash algorithm in merkle.json."""
+    doc = read_json(pkt / MERKLE_FILE)
+    doc["hash_algorithm"] = "md5"
+    write_json_canonical(pkt / MERKLE_FILE, doc)
+    return MERKLE_FILE
+
+
 def _swap_public_key(pkt: Path) -> str:
     """(robustness) Replace the public key with a different valid ed25519 key."""
     from amber.signer import generate_keypair
@@ -166,6 +187,8 @@ TAMPER_CASES = [
     pytest.param(_edit_manifest_header, id="7-edit-manifest-header"),
     pytest.param(_delete_capture_body, id="8-delete-capture-body"),
     pytest.param(_swap_public_key, id="9-swap-public-key"),
+    pytest.param(_downgrade_signature_algorithm, id="10-downgrade-signature-algorithm"),
+    pytest.param(_downgrade_hash_algorithm, id="11-downgrade-hash-algorithm"),
 ]
 
 

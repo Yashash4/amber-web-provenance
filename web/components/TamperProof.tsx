@@ -9,6 +9,7 @@ interface VerifyResult {
   brokenNode: string | null;
   rawOutput: string;
   command: string;
+  trustedPubkeys?: string[];
   error?: string;
 }
 
@@ -139,6 +140,7 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
           Edit any number in the exported packet → the RED/GREEN below is the REAL{" "}
           <code className="text-amber">verify_packet</code> exit code, not a hardcoded UI state.
         </p>
+        <TrustCeremony pubkey={result?.trustedPubkeys?.[0]} />
       </header>
 
       <VerdictBanner result={result} busy={busy} busyLabel={busyLabel} />
@@ -230,6 +232,32 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
   );
 }
 
+/**
+ * The OUT-OF-BAND TRUST CEREMONY (the security property that makes the
+ * tamper-proof forge-proof on camera). The verifier is pinned, via `--pubkey`,
+ * to the signer's INDEPENDENTLY-PUBLISHED public key — not to the allowlist
+ * bundled inside the repo. So an attacker who edits the packet (and even the
+ * repo's `trusted_signers.txt`) still can't forge a GREEN: the judge holds the
+ * key out-of-band. Shown verbatim so it is auditable that this is the real pin.
+ */
+function TrustCeremony({ pubkey }: { pubkey?: string }) {
+  const key = pubkey ?? DEMO_SIGNER_PUBKEY_HINT;
+  return (
+    <div className="rounded-md border border-amber/30 bg-amber/5 px-3 py-2 text-[11px] text-white/60">
+      <span className="font-bold text-amber/80">Out-of-band trust:</span> the verifier is pinned
+      with <code className="text-amber">--pubkey</code> to the signer&apos;s independently-published
+      public key{" "}
+      <code className="break-all text-amber/80">{key}</code>{" "}
+      — not the repo&apos;s bundled allowlist. Edit the packet (or even its allowlist) and you still
+      cannot forge a GREEN: <span className="text-white/80">the judge holds the key.</span>
+    </div>
+  );
+}
+
+/** Same committed demo signer key the server pins to (for the pre-verify hint). */
+const DEMO_SIGNER_PUBKEY_HINT =
+  "f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8";
+
 function VerdictBanner({
   result,
   busy,
@@ -279,7 +307,7 @@ function VerdictBanner({
       </div>
       <div className="mt-1 text-xs text-white/60">
         {verified
-          ? "Every capture hash, the Merkle root, and the ed25519 signature re-check under the trusted signer key."
+          ? "Every capture hash, the Merkle root, and the ed25519 signature re-check under the signer's out-of-band, independently-published public key."
           : `Broken at: ${result.brokenNode ?? "(unknown)"} — the edit changed a Merkle leaf, so the signed root no longer matches.`}
       </div>
       <div className="mt-2 text-[11px] uppercase tracking-widest text-white/30">

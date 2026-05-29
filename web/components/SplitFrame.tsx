@@ -182,9 +182,87 @@ function SignedFactBanner({ view }: { view: PacketView }) {
           value={`${view.moreExpensiveCountry ?? "—"} ${view.moreExpensiveNet ?? ""}`}
         />
       </div>
+      <VatInversionLine view={view} />
+      <DollarCard view={view} />
       <div className="mt-2 text-xs text-white/60">
-        Same gross price both countries; the delta is purely net-of-tax. The signed packet records
-        this fact only — a human draws any legal conclusion.
+        The signed packet records this fact only — a human draws any legal conclusion.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The VAT-inversion line — kills the "€10.75 is just VAT" objection. When the
+ * dearer-net country is also the LOWER-VAT country, the gap cannot be a tax
+ * artifact (stripping the higher tax would make it cheaper, not dearer). Derived
+ * from the packet's own per-capture VAT rates; only shown when the inversion
+ * actually holds.
+ */
+function VatInversionLine({ view }: { view: PacketView }) {
+  const dearer = view.moreExpensiveCountry;
+  const cheaper = view.cheaperCountry;
+  if (!dearer || !cheaper) return null;
+  const rateOf = (c: string) => {
+    const pc = view.perCapture.find((p) => p.country === c);
+    return pc ? Number(pc.vatRate) : NaN;
+  };
+  const dearerVat = rateOf(dearer);
+  const cheaperVat = rateOf(cheaper);
+  if (!Number.isFinite(dearerVat) || !Number.isFinite(cheaperVat)) return null;
+  // The inversion: the dearer-NET country has the LOWER VAT.
+  if (!(dearerVat < cheaperVat)) return null;
+  return (
+    <div className="mt-2 rounded border border-amber/30 bg-black/30 px-3 py-2 text-xs text-white/70">
+      <span className="font-bold text-amber/80">Not tax — the channel.</span> {countryName(dearer)}{" "}
+      is the <span className="text-amber">lower-VAT</span> country ({(dearerVat * 100).toFixed(0)}%)
+      yet charges <span className="text-amber">more net</span> ({view.moreExpensiveNet} vs{" "}
+      {countryName(cheaper)} {view.cheaperNet} EUR at {(cheaperVat * 100).toFixed(0)}%). Stripping the
+      tax doesn&apos;t close the gap — it widens it. The {view.netDelta} EUR is NOT explained by VAT.
+    </div>
+  );
+}
+
+/** Group a plain integer with thin thousands separators (locale-independent). */
+function groupThousands(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * The BUSINESS-FIRST $ card: the signed €/unit delta × a BUYER-SUPPLIED annual
+ * volume → a €/yr recoverable-margin figure. The volume is labeled an ASSUMPTION
+ * on screen (never observed); the per-unit delta is the signed measurement. This
+ * is the one money card that turns a forensic curiosity into a CRO-legible
+ * outcome — kept to ONE card, never a fabricated TAM.
+ */
+function DollarCard({ view }: { view: PacketView }) {
+  const bi = view.businessImpact;
+  if (!bi) return null;
+  const eur = Number(bi.recoverableMarginEurPerYear);
+  const pretty = Number.isFinite(eur) ? groupThousands(eur) : bi.recoverableMarginEurPerYear;
+  return (
+    <div className="mt-2 rounded-md border-2 border-amber/50 bg-amber/10 px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-amber/70">
+            recoverable margin / year
+          </div>
+          <div className="text-2xl font-black text-amber">
+            €{pretty}
+            <span className="ml-1 text-sm font-normal text-amber/70">/yr</span>
+          </div>
+        </div>
+        <div className="text-right text-[11px] text-white/55">
+          <div>
+            {bi.netDeltaPerUnit} {bi.currency}/unit signed delta
+          </div>
+          <div>× {groupThousands(bi.annualDivertedUnits)} units/yr</div>
+        </div>
+      </div>
+      <div className="mt-1 text-[11px] text-white/45">
+        <span className="rounded bg-black/40 px-1 py-0.5 text-amber/70">ASSUMPTION</span>{" "}
+        {groupThousands(bi.annualDivertedUnits)} units/yr is a{" "}
+        <span className="text-white/70">{bi.volumeBasis}</span>, not an Amber measurement. Amber
+        signs the per-unit delta; the brand supplies the volume.
       </div>
     </div>
   );

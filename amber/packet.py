@@ -366,6 +366,28 @@ def verify_packet(
     # 4. Verify the ed25519 signature over the recomputed root. We verify the
     #    RECOMPUTED root (not the recorded one) so a tamperer cannot rescue a
     #    bad packet by also editing merkle.json's root field.
+    # 4z. Algorithm/scheme downgrade guard: the recompute above is hardcoded to
+    #     ed25519 + sha256 + the RFC 6962 domain-separated tree, so a packet that
+    #     self-describes a DIFFERENT scheme (an algorithm-confusion / downgrade
+    #     attempt, e.g. algorithm:"none"/hash_algorithm:"md5") must fail closed
+    #     rather than be silently verified under our fixed scheme.
+    expected_scheme = [
+        (signature_doc, "algorithm", "ed25519", SIGNATURE_FILE),
+        (signature_doc, "signed_over", "merkle_root_raw_bytes", SIGNATURE_FILE),
+        (merkle_doc, "hash_algorithm", "sha256", MERKLE_FILE),
+        (merkle_doc, "tree", "rfc6962-domain-separated", MERKLE_FILE),
+    ]
+    for doc, field_name, want, node in expected_scheme:
+        if doc.get(field_name) != want:
+            return _fail(
+                checks,
+                node,
+                f"unexpected {field_name}={doc.get(field_name)!r} (expected {want!r}): "
+                f"algorithm/scheme downgrade rejected — Amber verifies only ed25519 "
+                f"over a sha256 RFC 6962 tree.",
+            )
+    checks.append((SIGNATURE_FILE, True, "algorithm/scheme pinned: ed25519 + sha256 rfc6962"))
+
     public_key = signature_doc.get("public_key")
     signature_hex = signature_doc.get("signature")
     if not isinstance(public_key, str) or not isinstance(signature_hex, str):

@@ -28,6 +28,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 
+from amber.business import DEFAULT_ANNUAL_VOLUME_ASSUMPTION, dollarize_margin_leak
 from amber.capture import brightdata, extract, geoattr, identity, softblock, state, vat
 from amber.capture.record import CaptureRecord
 
@@ -251,6 +252,7 @@ def build_facts(
     *,
     category: str = vat.CATEGORY_STANDARD,
     sku_label: str | None = None,
+    annual_volume_assumption: int = DEFAULT_ANNUAL_VOLUME_ASSUMPTION,
 ) -> dict:
     """Build the complete ``facts.json`` dict from a batch of capture records.
 
@@ -301,6 +303,18 @@ def build_facts(
     else:
         dispatched_ss = brightdata.dispatched_same_second(records)
 
+    comparison = cross_country_comparison(per_capture)
+
+    # Dollarization bridge (deterministic, NO LLM): the signed net-of-tax €/unit
+    # delta * a BUYER-SUPPLIED annual-volume assumption -> a labeled €/yr
+    # margin-leak figure. Sealed into the signed bundle so the figure is itself
+    # tamper-protected; the volume travels labeled as an assumption (never as an
+    # observed fact). None when there is no real nonzero delta to dollarize.
+    business_impact = dollarize_margin_leak(
+        comparison.get("net_delta"),
+        annual_units=annual_volume_assumption,
+    )
+
     facts = {
         "schema": FACTS_SCHEMA,
         "url": url,
@@ -320,6 +334,7 @@ def build_facts(
         "sku_identity": id_result.as_fact(),
         "per_capture": [f.as_fact() for f in per_capture],
         "within_country_control": within_country_control(per_capture),
-        "cross_country_comparison": cross_country_comparison(per_capture),
+        "cross_country_comparison": comparison,
+        "business_impact": business_impact,
     }
     return facts

@@ -77,6 +77,20 @@ export interface PerCaptureView {
   httpStatus: number | null;
 }
 
+export interface BusinessImpactView {
+  /** Deterministic €/yr margin-leak figure (signed Layer-1 fact). */
+  recoverableMarginEurPerYear: string;
+  /** The signed, MEASURED net-of-tax per-unit delta. */
+  netDeltaPerUnit: string;
+  /** The BUYER-SUPPLIED annual-volume ASSUMPTION (never observed). */
+  annualDivertedUnits: number;
+  isAssumption: boolean;
+  volumeBasis: string;
+  dearerCountry: string | null;
+  cheaperCountry: string | null;
+  currency: string;
+}
+
 export interface WithinCountryView {
   country: string;
   agreement: string;
@@ -116,6 +130,8 @@ export interface PacketView {
   perCountryStates: Record<string, string[]>;
   withinCountry: WithinCountryView[];
   perCapture: PerCaptureView[];
+  /** The deterministic, signed dollarization (null when there's no delta). */
+  businessImpact: BusinessImpactView | null;
 }
 
 /** Build the render view-model from a packet's facts.json + manifest.json. */
@@ -154,6 +170,7 @@ export function loadPacketView(srcDir: string = packetDir()): PacketView {
   const cmp = facts.cross_country_comparison ?? {};
   const netDelta = cmp.net_delta ?? {};
   const wcc = facts.within_country_control ?? {};
+  const bi = facts.business_impact ?? null;
 
   const withinCountry: WithinCountryView[] = (wcc.per_country ?? []).map((c: any) => ({
     country: c.country,
@@ -192,6 +209,18 @@ export function loadPacketView(srcDir: string = packetDir()): PacketView {
     perCountryStates: cmp.per_country_states ?? {},
     withinCountry,
     perCapture,
+    businessImpact: bi
+      ? {
+          recoverableMarginEurPerYear: bi.recoverable_margin_eur_per_year,
+          netDeltaPerUnit: bi.net_of_tax_delta_per_unit,
+          annualDivertedUnits: bi.annual_diverted_units,
+          isAssumption: Boolean(bi.annual_diverted_units_is_assumption),
+          volumeBasis: bi.volume_basis ?? "buyer-supplied volume assumption",
+          dearerCountry: bi.dearer_country ?? null,
+          cheaperCountry: bi.cheaper_country ?? null,
+          currency: bi.currency ?? "EUR",
+        }
+      : null,
   };
 }
 

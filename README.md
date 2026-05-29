@@ -1,6 +1,38 @@
-# Amber — Web Provenance
+# Amber — catch gray-market diversion, recover the margin
 
-**A forensically-signed, geo-attributed observation of public web state.**
+**Premium brands lose millions a year to gray-market diversion** — a distributor
+buys cheap in one country and dumps it in another, wrecking the channel. Amber
+captures the same SKU across markets from in-country residential exits, strips
+the VAT confound, and turns the cross-border price gap into **a margin figure a
+brand can act on**:
+
+> On the real captured packet: a signed **€10.75/unit** net-of-tax gap (Germany
+> dearer than Belgium). At a brand-supplied **50,000 units/yr** of cross-border
+> leakage that is **€537,500/yr of recoverable margin** — the volume is a
+> labeled buyer assumption; Amber measures and signs the per-unit delta.
+
+And because every observation is **cryptographically signed and independently
+re-verifiable**, it is evidence a brand can act on (terminate a distributor,
+recover the margin) — **not a trust-me dashboard.** The provenance is the
+credibility differentiator: of the field, Amber is the only one that *signs* its
+evidence, so editing a byte breaks the signature and a forged re-sign is rejected
+because the verifier pins the signer's key out-of-band.
+
+**Verify the real packet yourself (offline, no network, no Amber service):**
+
+```bash
+verify_packet samples/live_packet \
+  --pubkey f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8
+# -> GREEN: VERIFIED — chain of custody intact
+```
+
+The `--pubkey` is the signer's **independently-published** key, supplied
+out-of-band: editing the packet (or even the repo's bundled allowlist) cannot
+forge a GREEN, because *you* hold the key. The figures above (`€10.75`,
+`€537,500/yr`) live inside the Merkle-signed bundle — edit one and the verifier
+flashes RED.
+
+---
 
 This repository holds Amber's signing/verification core plus the residential
 capture + measurement-validity floor that produces the signed facts:
@@ -23,6 +55,28 @@ capture + measurement-validity floor that produces the signed facts:
 
 > The signed bundle contains **only** raw captures + deterministic Layer-1
 > facts. No AI-derived label is ever signed.
+
+### Why €10.75 is *not* "just VAT" — and how it becomes €537,500/yr
+
+The naive read of the real packet is "Belgium has the higher VAT (21% vs 19%), so
+of course the shelf prices differ." Amber strips the tax and the artifact
+**inverts**: Germany is the **lower-VAT** country (19%) yet charges **more net**
+(€150.42 vs Belgium's €139.67 at 21%). Stripping the tax doesn't close the gap —
+it *widens* it. That is the signal a naive gross comparison hides and a
+tax-aware one surfaces: the €10.75/unit gap is the channel, not the tax.
+
+The dollarization bridge then makes it a business number (deterministic, NO LLM,
+**signed into the bundle**):
+
+```
+recoverable_margin_eur_per_year = net_of_tax_delta_per_unit × annual_diverted_units
+                                = €10.75 × 50,000  =  €537,500 / yr
+```
+
+`annual_diverted_units` is a **buyer-supplied volume assumption** (labeled
+`annual_diverted_units_is_assumption: true` in `facts.json`), never an Amber
+measurement. Amber signs the per-unit delta; the brand supplies the volume. The
+figure is a Merkle leaf, so editing it breaks the signature.
 
 ## The packet
 
@@ -54,12 +108,35 @@ Only `cryptography` (Apache-2.0 / BSD) is required at runtime.
 ## Verify a packet (offline)
 
 ```bash
-verify_packet path/to/amber_packet
-# or:  python -m amber.cli path/to/amber_packet
+verify_packet path/to/amber_packet --pubkey <signer-public-key-hex>
+# or:  python -m amber.cli path/to/amber_packet --pubkey <hex>
 ```
 
 Exit code `0` + green `VERIFIED` if the chain of custody is intact; non-zero +
 red `CHAIN OF CUSTODY BROKEN` (naming the broken node) on any tampering.
+
+### The trust pin (out-of-band — the security property, read this)
+
+The verifier checks the signature against a **trusted signer public key supplied
+out-of-band** — never solely the key bundled inside the packet (a self-attesting
+packet proves only "signed by whoever signed it" = nothing). Precedence:
+
+1. `--pubkey <hex>` (repeatable) — the **security path**: pass the signer's
+   independently-published key. An attacker who edits a fact *and* the repo's
+   allowlist still can't forge a GREEN, because you hold the key.
+2. `AMBER_TRUSTED_PUBKEY` env (comma/space-separated).
+3. the committed `amber/keys/trusted_signers.txt` allowlist — a **convenience
+   default** so a fresh clone verifies the golden packet with no flags. It is
+   *not* a security boundary against a repo-modifying attacker; the `--pubkey`
+   pin is. With **no** trusted key from any source, the verifier **fails closed**
+   (refuses to print GREEN) rather than trust the bundled key. A
+   downgrade/algorithm-confusion attempt (a packet self-describing a non-ed25519
+   scheme) is also rejected RED — the verifier only accepts ed25519 over a
+   sha256 RFC 6962 tree.
+
+The demo (`cd web && npm run demo`, and the interactive UI) runs the verifier
+with `--pubkey f2de2b5f…` and shows that pinned key on screen, so the
+forge-proof is airtight on camera.
 
 ## Reproduce the real signed golden packet
 
@@ -98,6 +175,15 @@ real RIPE NCC delegation data) backs the network-side geo-attribution; refresh i
 with `python scripts/build_rir_snapshot.py`.
 
 ## Phase 2 — the Layer-2 legal jury (AI/ML API)
+
+**One-glance receipt** (16-example hand-labeled gold set, reproduce with
+`amber-jury goldset`): per-model accuracy — Google `gemini-2.0-flash`
+**1.000**, Anthropic `claude-sonnet-4-5` 0.875, OpenAI `gpt-4o-mini` 0.750;
+3-model **consensus 0.875**. The consensus is **perfect (P = R = 1.0)** on the
+legally decisive labels (`PROHIBITED_GEO_BLOCKING`, `TAX_DUTY_ARTIFACT`,
+`INSUFFICIENT_INFO`); its only misses are borderline permitted-differential cases
+it correctly **routes to a human**. We report gold-set precision/recall, **not**
+inter-model agreement — consensus ≠ accuracy. (Full table + methodology below.)
 
 > **Layer split (physical, not rhetorical).** The signed packet (Layer 1) holds
 > only raw captures + deterministic facts. The legal *characterization* is

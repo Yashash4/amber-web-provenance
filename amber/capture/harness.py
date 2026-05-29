@@ -58,6 +58,7 @@ def seal_from_records(
     *,
     category: str = vat.CATEGORY_STANDARD,
     sku_label: str | None = None,
+    annual_volume_assumption: int = floor.DEFAULT_ANNUAL_VOLUME_ASSUMPTION,
     trusted_pubkeys: set[str] | None = None,
 ) -> HarnessResult:
     """Floor -> seal -> verify, given already-captured records.
@@ -71,7 +72,13 @@ def seal_from_records(
     if out.exists():
         shutil.rmtree(out)
 
-    facts = floor.build_facts(url, records, category=category, sku_label=sku_label)
+    facts = floor.build_facts(
+        url,
+        records,
+        category=category,
+        sku_label=sku_label,
+        annual_volume_assumption=annual_volume_assumption,
+    )
     pairs = [(r.to_capture_input(), r.body) for r in records]
     seal_packet(out, pairs, facts, private_key_hex)
 

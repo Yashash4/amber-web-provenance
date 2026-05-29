@@ -29,9 +29,11 @@ export default function Home() {
             <div>
               <h1 className="text-2xl font-black tracking-tight text-amber">AMBER</h1>
               <p className="text-xs text-white/50">
-                The forensic instrument that catches a store charging two countries different
-                conditions for the same product in the same second — and prints a tamper-proof,
-                independently re-verifiable evidence packet.
+                Premium brands lose millions a year to gray-market diversion — a distributor buys
+                cheap in one country and dumps it in another, wrecking the channel. Amber catches the
+                cross-border price gap across markets and turns it into a margin figure a brand can
+                act on. And because every observation is cryptographically signed and independently
+                re-verifiable, it&apos;s evidence you can act on — not a trust-me dashboard.
               </p>
             </div>
           </div>

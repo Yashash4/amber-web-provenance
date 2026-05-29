@@ -21,6 +21,14 @@ export interface VerifyResult {
   rawOutput: string;
   /** The exact argv that was spawned — surfaced so it is auditable it is real. */
   command: string;
+  /**
+   * The trusted signer public key(s) the signature was PINNED to, supplied
+   * out-of-band via `--pubkey` (NOT read from inside the packet). Surfaced so
+   * the on-camera trust ceremony is explicit: the verifier trusts only this
+   * independently-published key, so editing the packet's bundled allowlist
+   * cannot help an attacker — the judge holds the key.
+   */
+  trustedPubkeys: string[];
 }
 
 /**
@@ -107,6 +115,7 @@ export function runVerifier(packetDir: string): Promise<VerifyResult> {
         brokenNode,
         rawOutput,
         command,
+        trustedPubkeys: trusted,
       });
     });
   });
