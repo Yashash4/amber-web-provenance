@@ -50,6 +50,25 @@ SIGNAL_CLASS_REDIRECT = "geo_redirect"  # a Location redirect to a geo gate
 SIGNAL_CLASS_CHECKOUT = "checkout_rejection"  # payment/checkout refused for geo
 SIGNAL_CLASS_CATALOG = "catalog_absence"  # item absent from the geo catalogue
 
+# Causal GROUPS: two detector classes in the same group are facets of ONE
+# underlying cause and together count as a SINGLE causal signal, never two. The
+# storefront served the refusal in its response body — whether the matched text
+# reads as a geo-reason sentence or a payment/shipping rejection, it is one
+# storefront-served geo-refusal, not two independent confirmations. A genuine
+# second confirmation MUST come from a different layer (transport/status 451 or a
+# geo-redirect Location header), which is why those classes are in their own
+# groups. Any class not listed is its own group (group == the class name).
+_CAUSAL_GROUPS: dict[str, str] = {
+    SIGNAL_CLASS_DOM_REASON: "storefront_served_geo_refusal",
+    SIGNAL_CLASS_CHECKOUT: "storefront_served_geo_refusal",
+}
+
+
+def _causal_group(signal_class: str) -> str:
+    """The underlying-cause group for a detector class (defaults to the class)."""
+    return _CAUSAL_GROUPS.get(signal_class, signal_class)
+
+
 # HTTP 451 = Unavailable For Legal Reasons — a strong, distinct geo-block status.
 _GEO_BLOCK_STATUS = 451
 
@@ -95,17 +114,23 @@ def _collect_geo_block_signals(
 ) -> list[GeoBlockSignal]:
     """Gather candidate GEO_BLOCKED signals, each tagged with its causal class.
 
-    Only called when NO soft-block is present (the caller enforces that). Each
-    distinct class contributes at most one signal so two facets of one cause
-    cannot be double-counted toward the >=2 floor.
+    Only called when NO soft-block is present (the caller enforces that). Signals
+    are deduplicated by underlying CAUSE (their causal GROUP, see
+    :data:`_CAUSAL_GROUPS`), not by which lexical detector fired. So a single
+    storefront response that trips both the on-page geo-reason regex AND a
+    checkout/payment-rejection marker yields ONE "storefront-served geo-refusal"
+    signal — not two — because both are facets of the same cause. A genuine
+    second independent signal must come from a different layer (HTTP 451, or a
+    geo-redirect Location), which lives in its own causal group.
     """
     signals: list[GeoBlockSignal] = []
-    seen_classes: set[str] = set()
+    seen_groups: set[str] = set()
 
     def add(cls: str, detail: str) -> None:
-        if cls not in seen_classes:
+        group = _causal_group(cls)
+        if group not in seen_groups:
             signals.append(GeoBlockSignal(signal_class=cls, detail=detail))
-            seen_classes.add(cls)
+            seen_groups.add(group)
 
     headers_lc = {k.lower(): str(v) for k, v in headers.items()}
 
@@ -124,14 +149,20 @@ def _collect_geo_block_signals(
         add(SIGNAL_CLASS_DOM_REASON, f"on-page geo-reason: {reason!r}")
 
     # Class: checkout/payment rejection (an explicit machine marker in the body).
+    # These markers are deliberately payment/shipping-specific phrases that the
+    # geo-reason regex does NOT match, so they cannot fire off the same sentence a
+    # dom_geo_reason already fired off. (Phrases like "cannot ship to your
+    # country" or "unavailable in your region" are geo-reason text and are
+    # detected as dom_geo_reason — NOT here — and the two are in any case collapsed
+    # to one causal group, so a single storefront response is one signal.)
     text_lc = body.decode("utf-8", errors="replace").lower()
     if any(
         marker in text_lc
         for marker in (
-            "payment not accepted in your country",
-            "cannot ship to your country",
-            "delivery not available to your location",
-            "checkout unavailable in your region",
+            "payment method declined for your billing address",
+            "we are unable to process payment from your card's country",
+            "this card cannot be used for orders shipped to",
+            "delivery address rejected at checkout",
         )
     ):
         add(SIGNAL_CLASS_CHECKOUT, "explicit checkout/payment geo-rejection")

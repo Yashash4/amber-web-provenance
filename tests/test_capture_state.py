@@ -107,3 +107,59 @@ def test_two_facets_of_same_cause_do_not_double_count():
     # Both phrases are SIGNAL_CLASS_DOM_REASON -> collapsed to one class -> 1 signal.
     assert len(r.geo_block_signals) == 1
     assert r.state == state.INCONCLUSIVE
+
+
+# --------------------------------------------------------------------------- #
+# Causal-INDEPENDENCE regression: one storefront response (however many
+# sentences or which detectors it trips) is ONE cause. A real GEO_BLOCKED needs a
+# second signal from a DIFFERENT layer (status / redirect). (Bug: a single
+# "cannot ship to your country" string tripped BOTH dom_geo_reason AND
+# checkout_rejection, fabricating a fake 2-of-2.)
+# --------------------------------------------------------------------------- #
+
+
+def test_single_cannot_ship_phrase_is_inconclusive_not_fabricated_geo_blocked():
+    """A body of ONLY 'cannot ship to your country.' must be INCONCLUSIVE — that
+    one sentence is a single storefront-served geo-refusal, not two independent
+    confirmations. (Previously this fabricated GEO_BLOCKED with classes
+    ['dom_geo_reason', 'checkout_rejection'].)"""
+    r = _classify(200, {}, b"cannot ship to your country.")
+    assert r.state == state.INCONCLUSIVE
+    # Exactly one causal signal survives (the geo-reason text); the checkout
+    # markers no longer fire off geo-reason language.
+    assert len(r.geo_block_signals) == 1
+    assert r.geo_block_signals[0].signal_class == state.SIGNAL_CLASS_DOM_REASON
+
+
+def test_multi_sentence_single_cause_geo_gate_is_inconclusive():
+    """A single storefront response with MULTIPLE geo-refusal sentences is still
+    ONE cause (one response, one layer) -> INCONCLUSIVE, never GEO_BLOCKED."""
+    body = (
+        b"<html><body>This product is not available in your country. "
+        b"Payment not accepted in your country. "
+        b"We cannot ship to your region.</body></html>"
+    )
+    r = _classify(200, {}, body)
+    assert r.state == state.INCONCLUSIVE
+    # All facets collapse to the single 'storefront_served_geo_refusal' cause.
+    assert len(r.geo_block_signals) == 1
+
+
+def test_dom_geo_reason_plus_http_451_is_geo_blocked():
+    """A genuine 2-LAYER block: on-page geo-reason (storefront layer) + HTTP 451
+    (transport/status layer) = two causally-independent signals -> GEO_BLOCKED."""
+    body = b"<html><body>We do not ship to your country.</body></html>"
+    r = _classify(451, {}, body)
+    assert r.state == state.GEO_BLOCKED
+    classes = {s.signal_class for s in r.geo_block_signals}
+    assert classes == {state.SIGNAL_CLASS_STATUS, state.SIGNAL_CLASS_DOM_REASON}
+
+
+def test_dom_geo_reason_plus_geo_redirect_is_geo_blocked():
+    """A genuine 2-LAYER block: on-page geo-reason (storefront layer) + a
+    geo-redirect Location header (transport layer) -> GEO_BLOCKED."""
+    body = b"<html><body>not available in your region</body></html>"
+    r = _classify(302, {"location": "https://shop.example/region-gate"}, body)
+    assert r.state == state.GEO_BLOCKED
+    classes = {s.signal_class for s in r.geo_block_signals}
+    assert classes == {state.SIGNAL_CLASS_REDIRECT, state.SIGNAL_CLASS_DOM_REASON}

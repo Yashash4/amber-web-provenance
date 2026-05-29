@@ -220,16 +220,18 @@ def capture_one(
     url: str,
     country: str,
     session: str,
-    requested_at: str,
     capture_id: str,
     *,
     timeout: int = DEFAULT_TIMEOUT,
-) -> CaptureRecord:
-    """Capture ``url`` once from ``country`` via sticky ``session`` -> a record.
+) -> tuple[CaptureRecord, datetime]:
+    """Capture ``url`` once from ``country`` via sticky ``session``.
 
     Discovers the real exit IP for the session, fetches the product URL, and
-    returns a fully populated :class:`CaptureRecord`. Raises CaptureError on a
-    real failure (never returns a fabricated record).
+    returns ``(record, fetched_at)`` where ``fetched_at`` is the REAL wall-clock
+    instant the product fetch completed. The record's ``requested_at`` is filled
+    in by the batch (it is the same-second-batch stamp); ``fetched_at`` is the
+    raw per-capture truth the batch uses to compute the honest spread. Raises
+    CaptureError on a real failure (never returns a fabricated record).
     """
     if creds.mode == "proxy":
         opener = _build_proxy_opener(creds, country, session)
@@ -244,18 +246,72 @@ def capture_one(
     else:  # pragma: no cover - credentials.validate guards this
         raise CaptureError(f"unknown credentials mode: {creds.mode!r}")
 
-    return CaptureRecord(
+    fetched_at = datetime.now(UTC)
+    record = CaptureRecord(
         capture_id=capture_id,
         url=url,
         requested_country=country.upper(),
         session_id=session,
         exit_ip=exit_ip,
-        requested_at=requested_at,
+        # Provisional stamp: the batch overwrites this with the honest same-second
+        # (or per-capture) timestamp once the full batch's real spread is known.
+        requested_at=_iso_second(fetched_at),
         http_status=res.status,
         headers=res.headers,
         body=res.body,
         proxy_reported_country=proxy_country,
     )
+    return record, fetched_at
+
+
+def _iso_second(ts: datetime) -> str:
+    """ISO-8601 ``...Z`` second-truncated stamp for a UTC instant."""
+    return ts.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def stamp_batch_timestamps(
+    records: list[CaptureRecord],
+    fetched_at: list[datetime],
+) -> bool:
+    """Set each record's ``requested_at`` honestly from REAL fetch instants.
+
+    ``fetched_at[i]`` is the real wall-clock instant capture ``records[i]``
+    completed. We compute the ACTUAL spread (max - min) across the batch:
+
+      * spread <= 1s  -> the batch genuinely IS a same-second measurement; stamp
+        every record with ONE canonical second (the earliest fetch second), so the
+        floor sees a single distinct ``requested_at`` and reports
+        ``same_second_batch=true`` truthfully.
+      * spread  > 1s  -> the batch is NOT same-second; stamp each record with its
+        OWN real fetch second, so the floor sees >=2 distinct values and reports
+        ``same_second_batch=false`` — the over-one-second case the docstring
+        promises, honestly surfaced, never hidden.
+
+    Returns the actual ``same_second`` verdict (the spread-<=-1s boolean). Pure /
+    deterministic given the inputs, so it is unit-tested with injected timestamps
+    (no live Bright Data required). Mutates ``records`` in place.
+    """
+    if len(records) != len(fetched_at):
+        raise CaptureError(
+            "stamp_batch_timestamps: records and fetched_at length mismatch "
+            f"({len(records)} != {len(fetched_at)})"
+        )
+    if not records:
+        return True
+
+    earliest = min(fetched_at)
+    latest = max(fetched_at)
+    spread_seconds = (latest - earliest).total_seconds()
+    same_second = spread_seconds <= 1.0
+
+    if same_second:
+        canonical = _iso_second(earliest)
+        for rec in records:
+            rec.requested_at = canonical
+    else:
+        for rec, ts in zip(records, fetched_at, strict=True):
+            rec.requested_at = _iso_second(ts)
+    return same_second
 
 
 def same_second_batch(
@@ -268,11 +324,14 @@ def same_second_batch(
 ) -> list[CaptureRecord]:
     """Capture ``url`` from every country x N sticky sessions in one batch.
 
-    All captures in a batch share a single ``requested_at`` truncated to the
-    SECOND, so ``facts.json`` can attest a same-second measurement (the actual
-    wall-clock fetches are sequential — residential proxy fetches cannot be truly
-    simultaneous from one process — but a batch that spans more than a second is
-    reported honestly via ``same_second_batch=false`` in the floor, never hidden).
+    Each capture is stamped with its REAL fetch wall-clock time. The actual
+    batch spread (max - min of those real instants) decides the same-second
+    claim: a spread <= 1s makes every record share one canonical second (the
+    floor reports ``same_second_batch=true`` truthfully); a spread > 1s leaves
+    each record on its own real second so the floor reports
+    ``same_second_batch=false``. The wall-clock fetches are sequential —
+    residential proxy fetches cannot be truly simultaneous from one process — and
+    a batch that spans more than a second is reported honestly, never hidden.
 
     Raises CredentialsMissing if no creds (the caller/harness reports the pending
     live step); raises CaptureError on a real per-capture failure after recording
@@ -281,20 +340,22 @@ def same_second_batch(
     if creds is None:
         raise CredentialsMissing("no Bright Data credentials available for capture")
 
-    requested_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     records: list[CaptureRecord] = []
+    fetched_at: list[datetime] = []
     for country in countries:
         for i in range(sessions_per_country):
             session = f"amber-{country.lower()}-{i + 1}-{int(time.time() * 1000)}"
             capture_id = f"{country.lower()}-{i + 1:02d}"
-            rec = capture_one(
+            rec, ts = capture_one(
                 creds,
                 url,
                 country,
                 session,
-                requested_at,
                 capture_id,
                 timeout=timeout,
             )
             records.append(rec)
+            fetched_at.append(ts)
+
+    stamp_batch_timestamps(records, fetched_at)
     return records
