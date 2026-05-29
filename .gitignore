@@ -22,5 +22,19 @@ Thumbs.db
 # action that needs the secret: the demo private key lives at the gitignored
 # path amber/keys/demo-signer.key (or env AMBER_SIGNING_KEY) and is regenerable.
 *.key
+*.pem
 secrets/
 *.private
+
+# Bright Data credentials (Component 2) — secrets, NEVER committed.
+# Loaded from the process env or this gitignored file by amber/capture/credentials.py.
+.env
+.env.*
+!.env.example
+# Credential files at the REPO ROOT only (leading slash) so the source module
+# amber/capture/credentials.py is NOT ignored.
+/credentials.json
+/credentials.txt
+/brightdata.json
+/brightdata-creds.json
+*.creds

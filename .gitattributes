@@ -5,6 +5,12 @@
 # Treat the whole sealed sample as binary so no EOL conversion ever happens.
 samples/real_packet/** -text
 
+# The GATE-2 deterministic-floor demo packet is sealed the same way (canonical
+# LF-only JSON over Merkle-committed bodies); EOL conversion would break its
+# hashes too. The bodies here are clearly-labelled CONSTRUCTED FIXTURES (not a
+# Bright Data capture); the real golden packet is samples/real_packet.
+samples/floor_demo_packet/** -text
+
 # Captured response bodies anywhere are raw bytes — never normalise.
 *.body -text
 
