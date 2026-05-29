@@ -1,0 +1,125 @@
+"""Generate the offline RIR CIDR->country snapshot for geo-attribution.
+
+Downloads the REAL RIR delegated-extended statistics files (the authoritative
+public record of which IP ranges each Regional Internet Registry has delegated to
+which country) and emits a compact ``<cidr>\\t<ISO2>\\t<registry>`` snapshot that
+:mod:`amber.capture.geoattr` loads offline. This keeps geo-attribution
+reproducible at verify/replay time without a network dependency, while the data
+itself is real RIR delegation data, not invented.
+
+The full RIR files are large (millions of ranges). For Phase 1 we only need to
+attribute Bright Data residential exits in the hero/control countries, so this
+script can be run with ``--countries DE,BE,FR,NL,IT,ES,AT,PL,IE,LU`` to keep the
+snapshot small and committed. Re-run to refresh; the snapshot is data, not code.
+
+Source files (public, authoritative):
+  RIPE NCC: https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest
+  ARIN:     https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest
+  APNIC:    https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest
+  LACNIC:   https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest
+  AFRINIC:  https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest
+"""
+
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+OUT = REPO / "amber" / "capture" / "data" / "rir_country_blocks.tsv"
+
+RIR_URLS = {
+    "ripencc": "https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest",
+    "arin": "https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest",
+    "apnic": "https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest",
+    "lacnic": "https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest",
+    "afrinic": "https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest",
+}
+
+
+def _ipv4_count_to_cidrs(start_ip: str, count: int) -> list[str]:
+    """Convert an RIR (start_ip, host_count) record into a list of CIDR blocks."""
+    start = int(ipaddress.IPv4Address(start_ip))
+    end = start + count - 1
+    nets = ipaddress.summarize_address_range(
+        ipaddress.IPv4Address(start), ipaddress.IPv4Address(end)
+    )
+    return [str(n) for n in nets]
+
+
+def _parse_rir_file(
+    text: str, registry: str, wanted: set[str] | None
+) -> list[tuple[str, str, str]]:
+    """Parse a delegated-extended file into (cidr, ISO2, registry) rows.
+
+    Lines look like: ``ripencc|DE|ipv4|91.10.0.0|65536|20100101|allocated|...``.
+    Only IPv4 'allocated'/'assigned' records with a real country are kept.
+    """
+    rows: list[tuple[str, str, str]] = []
+    for line in text.splitlines():
+        if not line or line.startswith("#") or line.startswith("2|") or "|summary" in line:
+            continue
+        parts = line.split("|")
+        if len(parts) < 7:
+            continue
+        _rir, cc, afi, start, value, _date, status = parts[:7]
+        if afi != "ipv4" or status not in {"allocated", "assigned"}:
+            continue
+        if not cc or cc == "*" or len(cc) != 2:
+            continue
+        if wanted and cc.upper() not in wanted:
+            continue
+        try:
+            for cidr in _ipv4_count_to_cidrs(start, int(value)):
+                rows.append((cidr, cc.upper(), registry))
+        except (ipaddress.AddressValueError, ValueError):
+            continue
+    return rows
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the offline RIR snapshot.")
+    parser.add_argument(
+        "--countries",
+        default="DE,BE,FR,NL,IT,ES,AT,PL,IE,LU",
+        help="comma ISO-2 list to keep (empty = all; keeps the file small for Phase 1)",
+    )
+    parser.add_argument(
+        "--registries",
+        default="ripencc",
+        help="comma list of registries to fetch (default ripencc covers the EU hero set)",
+    )
+    args = parser.parse_args(argv)
+    wanted = {c.strip().upper() for c in args.countries.split(",") if c.strip()} or None
+    registries = [r.strip() for r in args.registries.split(",") if r.strip()]
+
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    all_rows: list[tuple[str, str, str]] = []
+    for reg in registries:
+        url = RIR_URLS[reg]
+        print(f"fetching {reg}: {url}")
+        with urllib.request.urlopen(url, timeout=120) as resp:  # noqa: S310
+            text = resp.read().decode("utf-8", errors="replace")
+        rows = _parse_rir_file(text, reg, wanted)
+        print(f"  {reg}: kept {len(rows)} IPv4 blocks for {sorted(wanted) if wanted else 'ALL'}")
+        all_rows.extend(rows)
+
+    all_rows.sort(key=lambda r: ipaddress.ip_network(r[0]).network_address.packed)
+    header = (
+        "# Amber offline RIR CIDR->country snapshot (geo-attribution Source 1).\n"
+        "# Generated by scripts/build_rir_snapshot.py from REAL RIR "
+        "delegated-extended files.\n"
+        "# Columns: <cidr>\\t<ISO2>\\t<registry>. Real delegation data, not invented.\n"
+    )
+    OUT.write_text(
+        header + "\n".join(f"{c}\t{cc}\t{reg}" for c, cc, reg in all_rows) + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {len(all_rows)} rows -> {OUT}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

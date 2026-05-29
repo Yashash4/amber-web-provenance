@@ -24,9 +24,17 @@ dev = [
 [project.scripts]
 verify_packet = "amber.cli:main"
 seal_packet = "amber.cli:seal_main"
+amber-capture = "amber.capture_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["amber"]
+# Ship the offline RIR geo-attribution snapshot (real RIPE delegation data) +
+# the committed signer public material with the package.
+artifacts = [
+    "amber/capture/data/*.tsv",
+    "amber/keys/*.pub",
+    "amber/keys/*.txt",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
