@@ -17,6 +17,10 @@ dependencies = [
     # Unlike urllib, requests/urllib3 send Proxy-Authorization on the HTTPS
     # CONNECT tunnel, which the residential proxy requires.
     "requests>=2.31",
+    # OpenAI SDK — used ONLY by the Phase-2 Layer-2 jury (amber/jury/) against
+    # the AI/ML API gateway (api.aimlapi.com). Apache-2.0. The Phase-1 signed-
+    # packet core does not import it.
+    "openai>=1.40",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +33,7 @@ dev = [
 verify_packet = "amber.cli:main"
 seal_packet = "amber.cli:seal_main"
 amber-capture = "amber.capture_cli:main"
+amber-jury = "amber.jury.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["amber"]

@@ -97,6 +97,87 @@ The offline RIR country snapshot (`amber/capture/data/rir_country_blocks.tsv`,
 real RIPE NCC delegation data) backs the network-side geo-attribution; refresh it
 with `python scripts/build_rir_snapshot.py`.
 
+## Phase 2 — the Layer-2 legal jury (AI/ML API)
+
+> **Layer split (physical, not rhetorical).** The signed packet (Layer 1) holds
+> only raw captures + deterministic facts. The legal *characterization* is
+> **Layer 2: an AI-assisted interpretation that is UNSIGNED and physically
+> separate** — `amber-jury` writes `<packet>.legal_advisory.json` as a *sibling*
+> of the packet directory, never inside it. An LLM never computes a fact or
+> number into the signed bundle.
+
+`amber/jury/` runs a **three-model jury** over a signed observation's
+`facts.json`. Three causally-different model families (one OpenAI, one Google,
+one Anthropic), reached through the single OpenAI-compatible **AI/ML API**
+gateway, *independently* classify the Reg (EU) 2018/302 legal taxonomy and give
+a rule-grounded rationale. A strict **majority** (≥ 2 of 3) becomes the advisory;
+any split routes to a human — the jury never auto-resolves disagreement.
+
+The jury models (resolved against the gateway's model list):
+
+| Family | Model id |
+|---|---|
+| OpenAI | `gpt-4o-mini` |
+| Google | `google/gemini-2.0-flash` |
+| Anthropic | `claude-sonnet-4-5-20250929` |
+
+```bash
+# Classify a packet; writes an UNSIGNED advisory beside it (not inside it):
+amber-jury classify samples/floor_demo_packet
+#   -> samples/floor_demo_packet.legal_advisory.json   (the packet stays GREEN)
+
+# The gold-set evidence (precision/recall — see below):
+amber-jury goldset           # add --json for the full per-example report
+```
+
+The API key is read from `AIMLAPI_KEY` in the process env or the gitignored
+`code/.env`; it is never printed or written into any output.
+
+### Methodology — gold-set precision / recall (not consensus theater)
+
+We do **not** report inter-model agreement (Fleiss' κ) as evidence of quality:
+correlated frontier models agreeing tells you nothing about correctness
+(consensus ≠ accuracy). Instead we measure each model and the consensus against
+a **hand-labeled gold set** of 16 synthetic Layer-1 observations whose
+ground-truth Reg 2018/302 label is fixed by the rule (access-denial →
+prohibited; net-of-tax-zero → tax artifact; permitted price differential;
+soft-block / single-country → insufficient info). Every gold example is a
+clearly-labeled *methodology fixture* (`GOLD-FIXTURE (METHODOLOGY — NOT
+PRODUCTION DATA)`); no real price history is fabricated. Reproduce with
+`amber-jury goldset`.
+
+Live results (16 examples; macro = mean over the labels present):
+
+| Classifier | Accuracy | Macro P | Macro R | Macro F1 |
+|---|---|---|---|---|
+| OpenAI `gpt-4o-mini` | 0.750 (12/16) | 0.625 | 0.750 | 0.667 |
+| Google `gemini-2.0-flash` | **1.000 (16/16)** | 1.000 | 1.000 | 1.000 |
+| Anthropic `claude-sonnet-4-5` | 0.875 (14/16) | 0.800 | 0.700 | 0.733 |
+| **3-model consensus** | 0.875 (14/16) | 0.800 | 0.700 | 0.733 |
+
+Per-label, the consensus is **perfect (P = R = 1.0) on the legally decisive
+categories** — `PROHIBITED_GEO_BLOCKING`, `TAX_DUTY_ARTIFACT`, and
+`INSUFFICIENT_INFO`. Its only misses are two *permitted price-differential*
+cases where the three models split three ways and the case was therefore routed
+to a human (recall 0.50 on `PERMITTED_OBJECTIVE_JUSTIFICATION`). That is the
+honest finding the gold set is designed to surface: the consensus does **not**
+beat the single best model here — routing a genuinely borderline
+permitted-differential case to a human is the correct, conservative behavior,
+not a number to inflate.
+
+### Jury tests
+
+The jury suite mocks the AI/ML API (no credits burned) and covers the consensus
+logic (majority, tie → `ROUTE_TO_HUMAN`, a model error counting as a non-vote),
+`.env` key-stripping, taxonomy/reply parsing, and the gold-set metric math. It
+also seals a real packet and asserts the advisory lands **outside** the packet
+and the packet still verifies GREEN. One opt-in live smoke test exercises the
+real gateway:
+
+```bash
+AMBER_JURY_LIVE=1 pytest tests/test_jury_live_smoke.py
+```
+
 ## Tests
 
 ```bash

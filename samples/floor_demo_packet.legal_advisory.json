@@ -1,0 +1,115 @@
+{
+  "advisory_criterion": "An access or condition difference exists BUT a lawful objective justification applies (a legal obligation in the customer's member state, or compliance with a Union/national law) — Art 3(3)/recitals. The differential is permitted, not prohibited.",
+  "advisory_label": "PERMITTED_OBJECTIVE_JUSTIFICATION",
+  "disclaimer": "AI-assisted interpretation — NOT signed, NOT legal advice. This Layer-2 advisory is produced by three independent language models reading the signed Layer-1 facts; it is physically separate from the cryptographically signed evidence packet and is never written into it. A human lawyer confirms any legal conclusion. Labels are grounded on Reg (EU) 2018/302.",
+  "facts_summary": {
+    "countries": [
+      "BE",
+      "DE"
+    ],
+    "cross_country_comparison": {
+      "access_denial": null,
+      "net_delta": {
+        "cheaper_country": "BE",
+        "cheaper_net": "107.43",
+        "delta_is_nonzero": true,
+        "gross_delta": "0.00",
+        "more_expensive_country": "DE",
+        "more_expensive_net": "109.24",
+        "net_of_tax_delta": "1.81"
+      },
+      "per_country_states": {
+        "BE": [
+          "PURCHASABLE"
+        ],
+        "DE": [
+          "PURCHASABLE"
+        ]
+      },
+      "primary_finding": "NET_OF_TAX_PRICE_DELTA"
+    },
+    "same_second_batch": true,
+    "sku_identity": {
+      "canonical_gtin": "04006381333931",
+      "confidence": "GTIN_MATCH"
+    },
+    "sku_label": "AMBER-HERO-001 (DEMO FIXTURE)",
+    "url": "https://shop.amber-demo.example/product/amber-hero-001",
+    "within_country_control": {
+      "all_intra_country_agree": true,
+      "per_country": [
+        {
+          "agreement": "AGREE",
+          "country": "BE",
+          "intra_country_spread": "0.00",
+          "n_purchasable_exits": 3,
+          "net_max": "107.43",
+          "net_min": "107.43",
+          "net_prices": [
+            "107.43",
+            "107.43",
+            "107.43"
+          ],
+          "session_ids": [
+            "demo-be-1",
+            "demo-be-2",
+            "demo-be-3"
+          ]
+        },
+        {
+          "agreement": "AGREE",
+          "country": "DE",
+          "intra_country_spread": "0.00",
+          "n_purchasable_exits": 3,
+          "net_max": "109.24",
+          "net_min": "109.24",
+          "net_prices": [
+            "109.24",
+            "109.24",
+            "109.24"
+          ],
+          "session_ids": [
+            "demo-de-1",
+            "demo-de-2",
+            "demo-de-3"
+          ]
+        }
+      ]
+    }
+  },
+  "generated_at": "2026-05-29T16:05:05Z",
+  "jurors": [
+    {
+      "error": null,
+      "family": "openai",
+      "label": "TAX_DUTY_ARTIFACT",
+      "model_id": "gpt-4o-mini",
+      "ok": true,
+      "rationale": "The net-of-tax price difference between Belgium and Germany is minimal (1.81), and the gross delta is 0.00, indicating that the entire observed difference is explained by VAT/duty. Both markets are purchasable, and no prohibited differential remains."
+    },
+    {
+      "error": null,
+      "family": "google",
+      "label": "PERMITTED_OBJECTIVE_JUSTIFICATION",
+      "model_id": "google/gemini-2.0-flash",
+      "ok": true,
+      "rationale": "Both BE and DE are PURCHASABLE. The net-of-tax price delta is 1.81 EUR. Reg 2018/302 permits net price differences alone; it prohibits blocking access. The gross delta is 0.00, suggesting a tax difference accounts for the net difference, which is a permitted objective justification."
+    },
+    {
+      "error": null,
+      "family": "anthropic",
+      "label": "PERMITTED_OBJECTIVE_JUSTIFICATION",
+      "model_id": "claude-sonnet-4-5-20250929",
+      "ok": true,
+      "rationale": "Both BE and DE markets are PURCHASABLE with no access denial. The €1.81 net-of-tax price difference (BE cheaper) is permitted under Regulation 2018/302, which prohibits blocking ACCESS but does not mandate price parity across member states. Traders may lawfully set different net prices per territory when both markets remain accessible."
+    }
+  ],
+  "layer": "LAYER_2_INTERPRETATION",
+  "routed_to_human": false,
+  "schema": "amber/legal_advisory@1",
+  "signed": false,
+  "tally": {
+    "PERMITTED_OBJECTIVE_JUSTIFICATION": 2,
+    "TAX_DUTY_ARTIFACT": 1
+  }
+}
