@@ -43,7 +43,7 @@ The crypto isn't the product. **The recovered margin is the product.** The signi
 These are the exact commands and the **real** output. Nothing is mocked; `verify_packet` re-derives every hash, rebuilds the Merkle tree, and checks the ed25519 signature against the key *you* pin.
 
 ```console
-$ git clone https://github.com/Yashash4/amber && cd amber
+$ git clone https://github.com/Yashash4/amber-web-provenance && cd amber-web-provenance
 $ pip install -e ".[dev]"
 
 # (1) The signed catch verifies GREEN — offline, against the out-of-band pinned key
