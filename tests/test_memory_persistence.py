@@ -25,6 +25,13 @@ from amber.memory.persistence import (
 )
 
 LIVE_PACKET = Path(__file__).resolve().parent.parent / "samples" / "live_packet"
+TEMPORAL_DIR = Path(__file__).resolve().parent.parent / "samples" / "temporal"
+# The real multi-capture sequence: the canonical hero + the additional real
+# re-captures of the SAME SKU/URLs. These are REAL Bright Data residential
+# captures (each seals + verify_packet GREEN); no price history is fabricated.
+REAL_SEQUENCE = [LIVE_PACKET] + sorted(TEMPORAL_DIR.glob("cap-*")) if TEMPORAL_DIR.is_dir() else [
+    LIVE_PACKET
+]
 
 
 def _obs(
@@ -166,6 +173,44 @@ def test_real_airpods_packet_persistence_is_a_baseline():
     assert rep.latest_net_of_tax_delta == "10.75"
     assert rep.within_country_corroborated is True
     assert "one-point baseline" in rep.real_window
+
+
+@pytest.mark.skipif(
+    len(REAL_SEQUENCE) < 2,
+    reason="the additional real re-captures (samples/temporal/cap-*) are not present",
+)
+def test_real_multi_capture_sequence_flips_to_persistent():
+    """The REAL multi-capture sequence (live_packet + temporal re-captures) is
+    PERSISTENT, with an HONEST real window — never a fabricated multi-week chart.
+
+    This asserts on the actual signed packets on disk (real Bright Data
+    residential captures of the same hero SKU/URLs), not on synthesized data.
+    The persistence verdict flips from BASELINE (n=1) to PERSISTENT only because
+    the gap is genuinely present in EVERY real capture.
+    """
+    observations = [observation_from_packet(p) for p in REAL_SEQUENCE]
+    # Every real capture must be the same hero SKU (one bucket).
+    buckets = group_by_sku(observations)
+    assert len(buckets) == 1, "all real re-captures are the same hero GTIN"
+    rep = analyze_sku(observations)
+
+    assert rep.n_captures == len(REAL_SEQUENCE) >= 2
+    assert rep.verdict == PERSISTENT
+    assert rep.captures_with_gap == rep.n_captures  # gap in EVERY real capture
+    assert rep.canonical_gtin == "00195949689673"
+    assert rep.latest_net_of_tax_delta == "10.75"
+    assert rep.latest_more_expensive_country == "DE"
+    assert rep.within_country_corroborated is True  # within-country AGREE every time
+    # The window is REAL (earliest..latest real capture instants) and honest.
+    assert f"{rep.n_captures} captures over" in rep.real_window
+    assert rep.first_seen is not None and rep.last_seen is not None
+    assert rep.first_seen < rep.last_seen  # a genuine, nonzero real window
+    assert "sustained" in rep.rationale
+    # The honest-framing guardrails: NEVER an invented cadence/horizon.
+    low = rep.real_window.lower()
+    assert "26 week" not in low
+    assert "daily" not in low
+    assert "weekly" not in low
 
 
 def test_group_by_sku_prefers_gtin():
