@@ -11,7 +11,7 @@
     --border:rgba(255,255,255,.09); --border2:rgba(255,255,255,.05);
     --amber:#f59e0b; --amber-b:#fbbf24; --amber-dim:#b4791e;
     --green:#22c55e; --green-b:#4ade80; --green-dim:#15803d; --red:#f43f5e; --red-b:#fb7185;
-    /* Layer-2 advisory lane: muted cool indigo/slate — alive but subordinate to the amber spine */
+    /* Layer-2 advisory lane: muted cool indigo/slate, alive but subordinate to the amber spine */
     --indigo:#6366f1; --indigo-b:#a5b4fc; --indigo-m:#818cf8; --indigo-dim:#7c84d8;
     --text:#f4f4f5; --muted:#9b9ba3; --faint:#6b6b73;
     --mono:'JetBrains Mono',ui-monospace,'Cascadia Code','Consolas',monospace;
@@ -174,7 +174,7 @@
     <!-- header -->
     <div class="hdr">
       <div class="brand"><span class="dot"></span>AMBER</div>
-      <div class="subtitle">architecture — catch cross-border diversion, turn it into a <b>signed margin figure</b></div>
+      <div class="subtitle">architecture: catch cross-border diversion, turn it into a <b>signed margin figure</b></div>
     </div>
     <div class="rule"></div>
 
@@ -182,12 +182,12 @@
     <div class="hero">
       <div class="hero-l">
         <div class="ey eyebrow">The catch · same GTIN · same instant · in-country residential exits</div>
-        <div class="catch">Catch gray-market diversion — and turn it<br>into a <b>margin figure a brand can act on.</b></div>
+        <div class="catch">Catch gray-market diversion, and turn it<br>into a <b>margin figure a brand can act on.</b></div>
         <div class="fig">
           <span class="pr">DE&nbsp;net <b style="color:#f4f4f5;font-weight:700">€150.42</b> <span class="c">(€179.00 · 19% VAT)</span></span>
           <span class="pr">BE&nbsp;net <b style="color:#f4f4f5;font-weight:700">€139.67</b> <span class="c">(€169.00 · 21% VAT)</span></span>
         </div>
-        <div class="inv"><span class="em">+€10.75 / unit net-of-tax.</span> The VAT inversion: Germany is the <b>lower-VAT</b> country (19% vs 21%) yet the <b>higher net price</b> — so the gap is the channel, not tax.</div>
+        <div class="inv"><span class="em">+€10.75 / unit net-of-tax.</span> The VAT inversion: Germany is the <b>lower-VAT</b> country (19% vs 21%) yet the <b>higher net price</b>, so the gap is the channel, not tax.</div>
       </div>
 
       <div class="hero-div"></div>
@@ -202,7 +202,7 @@
 
     <!-- ===== LAYER 1 ===== -->
     <div class="layhdr l1">
-      <span class="tag eyebrow">Layer 1 — the signed spine</span>
+      <span class="tag eyebrow">Layer 1 · the signed spine</span>
       <span class="note">DETERMINISTIC · SIGNED · the only thing that ever enters the evidence packet · <span class="gn">why a brand trusts the number</span></span>
     </div>
 
@@ -210,7 +210,7 @@
       <div class="node">
         <div class="ne">Bright Data</div>
         <div class="nt">Residential exits</div>
-        <div class="nd">Same GTIN, same instant, from <b>in-country exits</b> — DE + BE. Within-country control: 3 exits/country agree to the cent (spread €0.00) → country, not proxy noise.</div>
+        <div class="nd">Same GTIN, same instant, from <b>in-country exits</b> (DE + BE). Within-country control: 3 exits/country agree to the cent (spread €0.00), so it's the country, not proxy noise.</div>
         <div class="nchips"><span class="chip">raw bytes</span><span class="chip">exit-IP + headers</span></div>
       </div>
       <div class="arr">→</div>
@@ -224,14 +224,14 @@
       <div class="node hub">
         <div class="ne">Sealed artifact</div>
         <div class="nt">Signed evidence packet</div>
-        <div class="nd"><b>sha256</b> each capture → <b>RFC 6962 Merkle</b> root → <b>ed25519</b> sign. <span style="font-family:var(--mono);font-size:10.5px;color:#dcdce0">facts.json</span> is a leaf — no AI label is ever signed.</div>
+        <div class="nd"><b>sha256</b> each capture → <b>RFC 6962 Merkle</b> root → <b>ed25519</b> sign. <span style="font-family:var(--mono);font-size:10.5px;color:#dcdce0">facts.json</span> is a leaf, so no AI label is ever signed.</div>
         <div class="nchips"><span class="chip am">sha256</span><span class="chip am">RFC 6962 Merkle</span><span class="chip am">ed25519</span></div>
       </div>
       <div class="arr gn">→</div>
       <div class="node verify">
         <div class="ne">Verify · offline</div>
         <div class="nt">verify_packet</div>
-        <div class="nd">Recompute hashes + root, check ed25519 vs the <b>out-of-band pinned key</b> — no network. Edit one byte → RED; revert → GREEN.</div>
+        <div class="nd">Recompute hashes + root, check ed25519 vs the <b>out-of-band pinned key</b>, no network. Edit one byte → RED; revert → GREEN.</div>
         <div class="nchips"><span class="chip gn">GREEN · intact</span><span class="chip rd">RED · chain broken</span></div>
       </div>
     </div>
@@ -249,7 +249,7 @@
 
     <!-- ===== LAYER 2 ===== -->
     <div class="layhdr l2">
-      <span class="tag eyebrow">Layer 2 — advisory only</span>
+      <span class="tag eyebrow">Layer 2 · advisory only</span>
       <span class="note">UNSIGNED · interpretation, not record · a human draws any legal conclusion</span>
     </div>
     <div class="l2hdr-rule"></div>
@@ -264,7 +264,7 @@
       <div class="l2node">
         <div class="ne">Cognee · self-host · Gemini</div>
         <div class="nt">Temporal memory</div>
-        <div class="nd">"Has this SKU shown a gap before — is it persistent?" <b>Real captures only</b>; one capture is a baseline, never a faked chart.</div>
+        <div class="nd">"Has this SKU shown a gap before, and is it persistent?" <b>Real captures only</b>; one capture is a baseline, never a faked chart.</div>
         <div class="ubadge"><span class="chip">UNSIGNED · reads only</span></div>
       </div>
       <div class="l2node">
@@ -280,7 +280,7 @@
       <div class="wr">&#128296;</div>
       <div class="ct">
         <div class="h">Contribute-back → Bright Data MCP</div>
-        <div class="d"><b>geo_fanout</b> tool + classified retry/backoff — a blocked geo becomes a <span class="em">first-class signed measurement</span>, not a discarded error. Closes #104.</div>
+        <div class="d"><b>geo_fanout</b> tool + classified retry/backoff: a blocked geo becomes a <span class="em">first-class signed measurement</span>, not a discarded error. Closes #104.</div>
       </div>
       <div class="meta">
         <div class="lnk">github.com/brightdata/brightdata-mcp/pull/141</div>
