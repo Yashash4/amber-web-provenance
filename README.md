@@ -18,7 +18,7 @@ A distributor buys cheap in one country and dumps it in another, wrecking the ch
 
 > *"Same product page, requests fired the same instant from Germany and Belgium — the store showed different net prices. Amber caught the gap, dollarized it to **€537,500/yr** of recoverable margin, printed a **signed receipt the brand can act on** — you verify it yourself offline — and shipped the geo layer back into Bright Data as an open-source PR."*
 
-The crypto isn't the product. **The recovered margin is the product.** The signing is *why a brand-protection VP can trust the number over a dashboard's word* — of the entire field, Amber is the only one that **signs** its evidence, so editing a byte breaks the signature and a forged re-sign is rejected. That is the difference between *"a vendor told us"* and *"here is proof we can act on."*
+The crypto isn't the product. **The recovered margin is the product.** The signing is *why a brand-protection VP can trust the number over a dashboard's word* — Amber **signs** its evidence, so editing a byte breaks the signature and a forged re-sign is rejected. That is the difference between *"a vendor told us"* and *"here is proof we can act on."*
 
 ---
 
@@ -36,7 +36,7 @@ The crypto isn't the product. **The recovered margin is the product.** The signi
 | **The contribute-back PR (the trophy)** | `geo_fanout` tool + classified retry/backoff, table-driven tests, no TODOs — **opened** against the sponsor's repo, closes #104 | [github.com/brightdata/brightdata-mcp/pull/141](https://github.com/brightdata/brightdata-mcp/pull/141) |
 | **The 3-model legal jury (gold-set, not consensus theater)** | Google `gemini-2.0-flash` **1.000** · Anthropic `claude-sonnet-4-5` 0.875 · OpenAI `gpt-4o-mini` 0.750 · 3-model **consensus 0.875** (perfect on the decisive labels) | `amber-jury goldset` |
 
-**Why beat-the-twin matters:** a competitor can *hash* a capture (a single SHA-256) — but you can recompute that hash, so anyone who controls the file controls the "proof." Amber **signs** the Merkle root with a private key you don't hold, and `verify_packet` checks it against the signer's **independently-published** public key (`--pubkey`, supplied out-of-band). An attacker who edits a fact *and* re-signs *and* rewrites the repo's allowlist **still can't forge a GREEN**, because you hold the key. Hashing is tamper-*evident*; signing is tamper-*proof*. Across the entire field, **0 teams sign anything.**
+**Why signed, not just hashed:** a bare hash (a single SHA-256) is tamper-*evident* — but anyone who controls the file can recompute it, so whoever holds the file holds the "proof." Amber **signs** the Merkle root with a private key you don't hold, and `verify_packet` checks it against the signer's **independently-published** public key (`--pubkey`, supplied out-of-band). An attacker who edits a fact *and* re-signs *and* rewrites the repo's allowlist **still can't forge a GREEN**, because you hold the key. Hashing is tamper-*evident*; signing is tamper-*proof*.
 
 ### Reproduce it on a clean clone — the 3 commands a judge runs
 
@@ -160,7 +160,7 @@ recoverable_margin_eur_per_year = net_of_tax_delta_per_unit × annual_diverted_u
 
 Brand protection / anti-counterfeiting is a real, funded category: **Red Points** (~$1.2M/yr enterprise contracts), **MarqVision**, **Corsearch**. Every one of them ships a **dashboard** — a vendor asserting a finding the brand cannot independently verify. That is fine for a takedown queue; it is **not** enough to terminate a distributor or anchor a claim, where the distributor's counsel will ask *"prove this number is real and unaltered."*
 
-Amber occupies the **empty quadrant**: *signed, independently re-verifiable, geo-attributed* web-state evidence. Across this hackathon's entire field, **none sign their captures** — the closest (a single SHA-256 hash) is tamper-*evident*, not tamper-*proof*, and ships no verifier. Amber is the only **chain-of-custody attestation for agent-collected web data**, which is also the cleanest unique angle for the Security track.
+Amber is a **chain-of-custody attestation for agent-collected web data**: *signed, independently re-verifiable, geo-attributed* web-state evidence. A bare SHA-256 hash is tamper-*evident*, not tamper-*proof*, and ships no verifier; Amber signs the Merkle root and ships an offline verifier, so the evidence holds up to the distributor's counsel asking *"prove this number is real and unaltered."* That's also the cleanest angle for the Security track.
 
 ---
 
