@@ -38,3 +38,4 @@ secrets/
 /brightdata.json
 /brightdata-creds.json
 *.creds
+scripts/branding/*-preview.png

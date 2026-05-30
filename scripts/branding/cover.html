@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#08080a; --bg2:#0b0b0e;
+    --panel:#101015; --panel2:#16161b;
+    --border:rgba(255,255,255,.085); --border2:rgba(255,255,255,.05);
+    --amber:#f59e0b; --amber-b:#fbbf24; --amber-dim:#b4791e;
+    --green:#22c55e; --green-dim:#15803d;
+    --red:#f43f5e; --red-dim:#9f1239;
+    --text:#f4f4f5; --muted:#9b9ba3; --faint:#6b6b73;
+    --mono:'JetBrains Mono',ui-monospace,'Cascadia Code','Consolas',monospace;
+    --sans:'Inter','Segoe UI',system-ui,-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1280px;height:720px;overflow:hidden}
+  body{
+    font-family:var(--sans); color:var(--text);
+    background:
+      radial-gradient(880px 440px at 10% -10%, rgba(245,158,11,.13), transparent 60%),
+      radial-gradient(720px 500px at 110% 118%, rgba(245,158,11,.06), transparent 55%),
+      linear-gradient(180deg,var(--bg),var(--bg2));
+    position:relative;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  /* faint grid */
+  body::before{
+    content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+    background-image:
+      linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);
+    background-size:46px 46px;
+    mask-image:radial-gradient(120% 100% at 50% 38%, #000 55%, transparent 100%);
+  }
+  .frame{position:relative; z-index:1; height:720px; display:flex; flex-direction:column; padding:22px 38px 16px;}
+
+  /* ---------- header ---------- */
+  .hdr{display:flex; align-items:center; justify-content:space-between; padding-bottom:11px;}
+  .brand{display:flex; align-items:center; gap:13px; font-weight:700; font-size:21px; letter-spacing:7px;}
+  .dot{width:15px; height:15px; border-radius:50%;
+    background:radial-gradient(circle at 32% 28%, #ffd97a, var(--amber) 58%, #c9810f);
+    box-shadow:0 0 16px 2px rgba(245,158,11,.6), inset 0 0 5px rgba(255,255,255,.35);}
+  .meta{font-family:var(--mono); font-size:12.5px; letter-spacing:2.4px; color:var(--faint); font-weight:500;}
+  .meta b{color:var(--amber-dim); font-weight:600;}
+  .rule{height:1px; background:linear-gradient(90deg,transparent,var(--border) 10%,var(--border) 90%,transparent);}
+
+  /* ---------- eyebrow + business headline ---------- */
+  .lead{padding:13px 0 12px;}
+  .lead .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:2.8px; color:var(--faint);
+    text-transform:uppercase; font-weight:600; margin-bottom:8px; white-space:nowrap;}
+  .lead .eyebrow .on{color:var(--amber-b);}
+  .lead h1{font-weight:800; letter-spacing:-.9px; line-height:1.03; font-size:33px; color:var(--text);}
+  .lead h1 .am{color:var(--amber-b);}
+
+  /* ---------- HERO split-frame ---------- */
+  .hero{flex:1; display:grid; grid-template-columns:1fr 168px 1fr; gap:0; align-items:stretch; min-height:0;}
+
+  .pcard{
+    position:relative; display:flex; flex-direction:column; justify-content:center;
+    background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.008));
+    border:1px solid var(--border); border-radius:16px; padding:20px 26px;
+    overflow:hidden;
+  }
+  .pcard.left{border-right:none; border-top-right-radius:0; border-bottom-right-radius:0;}
+  .pcard.right{border-left:none; border-top-left-radius:0; border-bottom-left-radius:0;}
+  .pcard.hi{
+    border-color:rgba(245,158,11,.42);
+    background:linear-gradient(180deg, rgba(245,158,11,.07), rgba(245,158,11,.012));
+  }
+  .pcard::after{content:""; position:absolute; top:0; left:0; right:0; height:3px;
+    background:var(--accent); opacity:.9;}
+  .pcard.left::after{border-top-left-radius:16px;}
+  .pcard.right::after{border-top-right-radius:16px;}
+  .pcard.left{--accent:linear-gradient(90deg,var(--amber),var(--amber-b));}
+  .pcard.right{--accent:linear-gradient(90deg,rgba(155,155,163,.55),rgba(155,155,163,.2));}
+
+  .pc-head{display:flex; align-items:center; gap:11px; margin-bottom:13px;}
+  .flag{font-family:var(--mono); font-size:15px; font-weight:700; letter-spacing:2px;
+    padding:5px 11px; border-radius:8px; background:rgba(255,255,255,.06); color:#dcdce0;
+    border:1px solid var(--border);}
+  .pcard.hi .flag{background:rgba(245,158,11,.14); color:var(--amber-b); border-color:rgba(245,158,11,.4);}
+  .country{font-size:16px; font-weight:700; letter-spacing:.2px; color:var(--text);}
+  .country span{display:block; font-family:var(--mono); font-size:11px; font-weight:500; letter-spacing:1px; color:var(--muted); margin-top:3px;}
+
+  .gross{font-family:var(--mono); font-size:14px; color:var(--faint); font-weight:500; margin-bottom:3px;}
+  .gross s{text-decoration-thickness:1.5px; text-decoration-color:rgba(155,155,163,.6);}
+  .net{display:flex; align-items:baseline; gap:9px;}
+  .net .num{font-family:var(--mono); font-weight:700; letter-spacing:-1.5px; font-size:52px; line-height:1; color:var(--text);}
+  .pcard.hi .net .num{color:var(--amber-b); text-shadow:0 0 26px rgba(245,158,11,.25);}
+  .net .tag{font-family:var(--sans); font-size:13px; font-weight:600; color:var(--faint); letter-spacing:.3px;}
+  .vatline{margin-top:11px; font-family:var(--mono); font-size:12px; color:var(--muted); font-weight:500;}
+  .vatline b{color:#d8d8dc; font-weight:600;}
+  .agree{margin-top:11px; display:inline-flex; align-items:center; gap:7px; align-self:flex-start;
+    font-size:11.5px; font-weight:600; color:var(--green); letter-spacing:.2px;
+    padding:5px 11px; border-radius:999px; background:rgba(34,197,94,.09); border:1px solid rgba(34,197,94,.28);}
+  .agree .led{width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 8px 1px rgba(34,197,94,.7);}
+
+  /* central seam */
+  .seam{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; position:relative; z-index:3;}
+  .seam .gapbadge{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    width:150px; height:150px; border-radius:50%;
+    background:radial-gradient(circle at 50% 38%, rgba(245,158,11,.2), rgba(245,158,11,.05) 70%, transparent);
+    border:1.5px solid rgba(245,158,11,.5);
+    box-shadow:0 0 36px 4px rgba(245,158,11,.22), inset 0 0 22px rgba(245,158,11,.1);
+  }
+  .gapbadge .plus{font-family:var(--mono); font-weight:700; font-size:34px; letter-spacing:-1px; color:var(--amber-b); line-height:1;
+    text-shadow:0 0 24px rgba(245,158,11,.4);}
+  .gapbadge .unit{font-family:var(--mono); font-size:12px; color:var(--amber-dim); font-weight:600; margin-top:3px; letter-spacing:.5px;}
+  .gapbadge .netoftax{font-family:var(--mono); font-size:9.5px; letter-spacing:2.4px; color:var(--amber); font-weight:700; margin-top:7px; text-transform:uppercase;}
+  .seam .invert{
+    text-align:center; font-size:11.5px; line-height:1.45; color:var(--muted); font-weight:500;
+    max-width:158px;
+  }
+  .seam .invert b{color:var(--amber-b); font-weight:700;}
+
+  /* ---------- bottom strip ---------- */
+  .strip{flex:0 0 auto; display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:14px;}
+  .scell{
+    display:flex; flex-direction:column; justify-content:center; position:relative; overflow:hidden;
+    background:linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,.006));
+    border:1px solid var(--border); border-radius:15px; padding:16px 22px;
+  }
+  .scell .eyebrow{font-family:var(--mono); font-size:10.5px; letter-spacing:2.6px; color:var(--faint);
+    text-transform:uppercase; font-weight:600; margin-bottom:11px;}
+  .scell.proof{border-left:3px solid var(--green);}
+  .scell.proof .eyebrow .on{color:var(--green);}
+  .scell.money{border-left:3px solid var(--amber-b);}
+  .scell.money .eyebrow .on{color:var(--amber-b);}
+
+  /* proof chips */
+  .vprow{display:flex; align-items:center; gap:13px;}
+  .vp{display:flex; align-items:center; gap:9px; font-family:var(--mono); font-weight:700; font-size:12.5px;
+    padding:11px 15px; border-radius:11px; white-space:nowrap;}
+  .vp .led{width:10px; height:10px; border-radius:50%; flex:0 0 auto;}
+  .vp.green{color:#bbf7d0; background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.4);}
+  .vp.green .led{background:var(--green); box-shadow:0 0 10px 1px rgba(34,197,94,.7);}
+  .vp.red{color:#fecdd3; background:rgba(244,63,94,.1); border:1px solid rgba(244,63,94,.42);}
+  .vp.red .led{background:var(--red); box-shadow:0 0 10px 1px rgba(244,63,94,.7);}
+  .edit{display:flex; flex-direction:column; align-items:center; gap:3px; flex:0 0 auto;}
+  .edit .arr{font-size:17px; color:var(--amber); line-height:1;}
+  .edit .lbl{font-family:var(--mono); font-size:9px; color:var(--faint); letter-spacing:1px; text-align:center; line-height:1.2;}
+  .proofnote{margin-top:11px; font-size:11.5px; line-height:1.4; color:var(--muted);}
+  .proofnote b{color:var(--amber-b); font-weight:700;}
+  .prnote{margin-top:9px; font-family:var(--mono); font-size:10px; line-height:1.35; color:var(--faint); letter-spacing:.2px;}
+  .prnote b{color:var(--muted); font-weight:600;}
+
+  /* money */
+  .money .mrow{display:flex; align-items:baseline; gap:12px;}
+  .big{font-family:var(--mono); font-weight:700; letter-spacing:-2px; font-size:50px; line-height:.95;
+    color:var(--amber-b); text-shadow:0 0 30px rgba(245,158,11,.3);}
+  .big span{font-size:21px; color:var(--amber-dim); letter-spacing:-1px;}
+  .mlabel{font-size:14px; color:var(--text); font-weight:700; letter-spacing:.2px;}
+  .mlabel span{display:block; font-size:11px; font-weight:500; color:var(--muted); margin-top:2px;}
+  .mfaint{margin-top:11px; font-family:var(--mono); font-size:10.5px; color:var(--faint); letter-spacing:.3px;}
+  .mfaint b{color:var(--muted); font-weight:600;}
+
+  /* ---------- footer ---------- */
+  .ftr{display:flex; align-items:center; justify-content:space-between; padding-top:13px;}
+  .tag{font-size:13px; color:var(--muted);}
+  .tag b{color:#d8d8dc; font-weight:600;}
+  .built{font-family:var(--mono); font-size:11.5px; letter-spacing:1.2px; color:var(--faint);}
+  .built b{color:var(--amber-dim); font-weight:600;}
+</style>
+</head>
+<body>
+  <div class="frame">
+
+    <!-- header -->
+    <div class="hdr">
+      <div class="brand"><span class="dot"></span>AMBER</div>
+      <div class="meta">lablab.ai · WEB&nbsp;DATA&nbsp;UNLOCKED · <b>BRIGHT&nbsp;DATA</b> · 2026</div>
+    </div>
+    <div class="rule"></div>
+
+    <!-- business-first lead -->
+    <div class="lead">
+      <div class="eyebrow"><span class="on">GRAY-MARKET DIVERSION, CAUGHT</span> · SAME SKU · SAME INSTANT · IN-COUNTRY RESIDENTIAL EXITS</div>
+      <h1>One distributor. Two countries. <span class="am">€10.75 of margin leaking</span> on every unit.</h1>
+    </div>
+
+    <!-- HERO split-frame -->
+    <div class="hero">
+
+      <!-- GERMANY (dearer / highlighted) -->
+      <div class="pcard left hi">
+        <div class="pc-head">
+          <span class="flag">DE</span>
+          <span class="country">Germany<span>AirPods 4 · GTIN 0195949689673</span></span>
+        </div>
+        <div class="gross"><s>gross €179.00</s></div>
+        <div class="net"><span class="num">€150.42</span><span class="tag">net of tax</span></div>
+        <div class="vatline">VAT <b>19%</b> &nbsp;·&nbsp; the <b>lower-VAT</b> country</div>
+        <div class="agree"><span class="led"></span>3 residential exits agree — spread €0.00</div>
+      </div>
+
+      <!-- central seam -->
+      <div class="seam">
+        <div class="gapbadge">
+          <div class="plus">+€10.75</div>
+          <div class="unit">/ unit</div>
+          <div class="netoftax">net of tax</div>
+        </div>
+        <div class="invert">Lower VAT, <b>higher</b> net price — the gap isn't tax. It's the channel.</div>
+      </div>
+
+      <!-- BELGIUM (cheaper) -->
+      <div class="pcard right">
+        <div class="pc-head">
+          <span class="flag">BE</span>
+          <span class="country">Belgium<span>AirPods 4 · GTIN 0195949689673</span></span>
+        </div>
+        <div class="gross"><s>gross €169.00</s></div>
+        <div class="net"><span class="num">€139.67</span><span class="tag">net of tax</span></div>
+        <div class="vatline">VAT <b>21%</b> &nbsp;·&nbsp; the <b>higher-VAT</b> country</div>
+        <div class="agree"><span class="led"></span>3 residential exits agree — spread €0.00</div>
+      </div>
+
+    </div>
+
+    <!-- bottom strip: proof | money -->
+    <div class="strip">
+
+      <div class="scell proof">
+        <div class="eyebrow"><span class="on">WHY TRUST THE NUMBER</span> · ED25519 · MERKLE · OFFLINE</div>
+        <div class="vprow">
+          <div class="vp green"><span class="led"></span>verify_packet · GREEN</div>
+          <div class="edit"><span class="arr">→</span><span class="lbl">edit<br>one byte</span></div>
+          <div class="vp red"><span class="led"></span>CHAIN OF CUSTODY BROKEN</div>
+        </div>
+        <div class="proofnote">Every observation is signed &amp; re-verifiable offline. Of <b>46 teams</b> in the field, <b>0 sign anything</b>.</div>
+        <div class="prnote">geo_fanout PR → <b>brightdata-mcp #141</b> closes #104 · 323 tests pass</div>
+      </div>
+
+      <div class="scell money">
+        <div class="eyebrow"><span class="on">WHAT IT'S WORTH</span> · NET-OF-TAX × VOLUME</div>
+        <div class="mrow">
+          <div class="big">€537,500<span>&nbsp;/yr</span></div>
+          <div class="mlabel">recoverable margin<span>a brand can act on</span></div>
+        </div>
+        <div class="mfaint">€10.75 × <b>50,000 units / yr</b> — labeled buyer assumption, not a measured fact</div>
+      </div>
+
+    </div>
+
+    <!-- footer -->
+    <div class="rule" style="margin-top:13px;"></div>
+    <div class="ftr">
+      <div class="tag">Catch cross-border <b>gray-market diversion</b> — turn it into a <b>signed margin figure</b> a brand can act on.</div>
+      <div class="built">github.com/Yashash4/<b>amber</b></div>
+    </div>
+
+  </div>
+</body>
+</html>
