@@ -1,6 +1,7 @@
 "use client";
 
 import type { PacketView, PerCaptureView } from "@/lib/packet";
+import { urlForCountry, urlList } from "@/lib/url";
 
 const FLAGS: Record<string, string> = { DE: "🇩🇪", BE: "🇧🇪", FR: "🇫🇷", NL: "🇳🇱" };
 
@@ -79,19 +80,38 @@ function SessionCard({ pc, primary }: { pc: PerCaptureView; primary: boolean }) 
 }
 
 /** One country column = all of that country's residential sessions. */
-function CountryColumn({ country, captures }: { country: string; captures: PerCaptureView[] }) {
+function CountryColumn({
+  country,
+  captures,
+  url,
+}: {
+  country: string;
+  captures: PerCaptureView[];
+  url: string;
+}) {
   const flag = FLAGS[country] ?? "🌐";
   return (
     <div className="flex-1">
       <div className="mb-2 flex items-center gap-2">
         <span className="text-2xl">{flag}</span>
-        <div>
+        <div className="min-w-0">
           <div className="text-sm font-bold">{countryName(country)}</div>
           <div className="text-[11px] text-white/40">
             {captures.length} residential exit{captures.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="mb-2 block truncate text-[11px] text-amber/70 underline decoration-dotted underline-offset-2 hover:text-amber"
+          title={url}
+        >
+          {url}
+        </a>
+      ) : null}
       <div className="flex flex-col gap-2">
         {captures.map((pc, i) => (
           <SessionCard key={pc.captureId} pc={pc} primary={i === 0} />
@@ -124,8 +144,9 @@ export function SplitFrame({ view }: { view: PacketView }) {
         </div>
         <h2 className="text-lg font-bold">{view.skuLabel}</h2>
         <div className="text-[11px] text-white/40">
-          {view.url} · GTIN {view.canonicalGtin ?? "—"} ({view.gtinConfidence ?? "—"}) ·{" "}
-          {batchTimingLabel(view)} · requested_at {view.requestedAtValues.join(", ")}
+          {urlList(view.url).join(" · ") || "—"} · GTIN {view.canonicalGtin ?? "—"} (
+          {view.gtinConfidence ?? "—"}) · {batchTimingLabel(view)} · requested_at{" "}
+          {view.requestedAtValues.join(", ")}
         </div>
       </header>
 
@@ -133,7 +154,12 @@ export function SplitFrame({ view }: { view: PacketView }) {
 
       <div className="flex flex-col gap-4 md:flex-row">
         {countries.map((c) => (
-          <CountryColumn key={c} country={c} captures={byCountry.get(c) ?? []} />
+          <CountryColumn
+            key={c}
+            country={c}
+            captures={byCountry.get(c) ?? []}
+            url={urlForCountry(view.url, c)}
+          />
         ))}
       </div>
     </section>

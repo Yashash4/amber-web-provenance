@@ -10,6 +10,14 @@ import {
 import { join } from "node:path";
 
 import { packetDir, workingPacketDir } from "./paths";
+import { normalizeUrl, type PacketUrl } from "./url";
+
+// Re-export the URL types/helpers from the Node-free module so existing imports
+// from "@/lib/packet" keep working. Client components should import the value
+// helpers from "@/lib/url" directly to avoid pulling this Node-only module into
+// the browser bundle.
+export type { PacketUrl } from "./url";
+export { isUrlMap, urlForCountry, urlList } from "./url";
 
 /**
  * A capture body file carries a `_note` marker when it is a constructed demo
@@ -107,7 +115,12 @@ export interface PacketView {
   isFixture: boolean;
   fixtureNote: string | null;
   skuLabel: string;
-  url: string;
+  /**
+   * The product URL exactly as the packet carries it: a single string (fixture)
+   * OR a `{ country: url }` map (real per-country capture). Render with
+   * `urlForCountry(url, country)` / `urlList(url)` — never directly in JSX.
+   */
+  url: PacketUrl;
   countries: string[];
   sameSecondBatch: boolean;
   /** All N captures DISPATCHED (launched) within the same second (the honest
@@ -187,7 +200,7 @@ export function loadPacketView(srcDir: string = packetDir()): PacketView {
     isFixture,
     fixtureNote: note,
     skuLabel: facts.sku_label ?? "(unlabelled)",
-    url: facts.url ?? "",
+    url: normalizeUrl(facts.url),
     countries: facts.countries ?? [],
     sameSecondBatch: Boolean(facts.same_second_batch),
     dispatchedSameSecond:
