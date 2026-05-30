@@ -38,6 +38,86 @@ The crypto isn't the product. **The recovered margin is the product.** The signi
 
 **Why beat-the-twin matters:** a competitor can *hash* a capture (a single SHA-256) — but you can recompute that hash, so anyone who controls the file controls the "proof." Amber **signs** the Merkle root with a private key you don't hold, and `verify_packet` checks it against the signer's **independently-published** public key (`--pubkey`, supplied out-of-band). An attacker who edits a fact *and* re-signs *and* rewrites the repo's allowlist **still can't forge a GREEN**, because you hold the key. Hashing is tamper-*evident*; signing is tamper-*proof*. Of the 46 teams in the field, **0 sign anything.**
 
+### Reproduce it on a clean clone — the 3 commands a judge runs
+
+These are the exact commands and the **real** output. Nothing is mocked; `verify_packet` re-derives every hash, rebuilds the Merkle tree, and checks the ed25519 signature against the key *you* pin.
+
+```console
+$ git clone https://github.com/Yashash4/amber && cd amber
+$ pip install -e ".[dev]"
+
+# (1) The signed catch verifies GREEN — offline, against the out-of-band pinned key
+$ verify_packet samples/live_packet \
+    --pubkey f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8
+trusted signer source: --pubkey (CLI) (1 key)
+verify_packet: samples/live_packet
+  [OK  ] be-01: body sha256 ok (dc804afaae9b6b8f...)
+  [OK  ] be-02: body sha256 ok (9b860165ee9a9c81...)
+  [OK  ] be-03: body sha256 ok (2bbeb7b0da6bb073...)
+  [OK  ] de-01: body sha256 ok (5315f603b653588b...)
+  [OK  ] de-02: body sha256 ok (9baa7f16fe3ecaa4...)
+  [OK  ] de-03: body sha256 ok (5315f603b653588b...)
+  [OK  ] merkle.json: leaf table matches recomputed leaves
+  [OK  ] merkle.json/root: root ok (da20841e40815fab...)
+  [OK  ] signature.json: algorithm/scheme pinned: ed25519 + sha256 rfc6962
+  [OK  ] signature.json: ed25519 signature verified over root under trusted signer f2de2b5f14785372...
+
+  [OK] VERIFIED -- chain of custody intact          # exit code 0
+```
+
+```console
+# (2) Offline tamper -> RED, then revert -> GREEN. Edit ONE signed fact, no re-sign:
+#     facts.json per_capture[0].price_net  150.42 -> 149.42
+
+$ verify_packet samples/live_packet --pubkey f2de2b5f…   # after the edit
+  ...
+  [X] CHAIN OF CUSTODY BROKEN
+  broken at: facts.json
+  content of 'facts.json' changed since sealing: recomputed leaf 712d81df8130c29e… !=
+    sealed leaf aa3494077f6a107e…                    # exit code 1
+
+$ git checkout samples/live_packet/facts.json         # revert
+$ verify_packet samples/live_packet --pubkey f2de2b5f…
+  [OK] VERIFIED -- chain of custody intact            # exit code 0
+```
+
+Editing a single character of a signed fact changes its Merkle leaf → changes the root → the signature no longer covers it. The verifier names the broken node (`facts.json`) and exits non-zero. Revert the byte and it heals. **That is THE TAMPER PROOF** — the same `verify_packet` exit code drives the `npm run demo` GREEN→RED→GREEN.
+
+### The key-substitution forge — and why it still fails RED
+
+The sharp objection: *"so an attacker edits a fact, recomputes the Merkle root so the packet is internally consistent again, signs the new root with their **own** fresh key, and writes their own public key into `signature.json`. Now everything self-checks — doesn't it pass?"*
+
+No — because `verify_packet` pins the signer to a key supplied **out-of-band** (`--pubkey`), never the key the packet carries. Below is the **real transcript** of that exact attack, run against a throwaway copy of the live packet (the committed packet is never mutated; the attacker's private key is generated in-process and never written to disk):
+
+```console
+# --- attacker, working on a stolen copy of the packet ---
+[attacker] edited facts.json: business_impact.recoverable_margin_eur_per_year 537500.00 -> 99999999.00
+[attacker] recomputed Merkle root -> ed6d42af92936b51... (packet now internally consistent)
+[attacker] re-signed with a FRESH ed25519 key, wrote attacker pubkey e6ae7e06306b60a2... into signature.json
+
+# --- the brand verifies it against the signer's INDEPENDENTLY-PUBLISHED key ---
+$ verify_packet ./forged_packet \
+    --pubkey f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8
+trusted signer source: --pubkey (CLI) (1 key)
+  [OK  ] be-01: body sha256 ok (dc804afaae9b6b8f...)        # the attacker's internal
+  [OK  ] be-02: body sha256 ok (9b860165ee9a9c81...)        # consistency holds: every
+  [OK  ] be-03: body sha256 ok (2bbeb7b0da6bb073...)        # hash recomputes, the new
+  [OK  ] de-01: body sha256 ok (5315f603b653588b...)        # root matches, the new
+  [OK  ] de-02: body sha256 ok (9baa7f16fe3ecaa4...)        # signature verifies under
+  [OK  ] de-03: body sha256 ok (5315f603b653588b...)        # the attacker's OWN key...
+  [OK  ] merkle.json: leaf table matches recomputed leaves
+  [OK  ] merkle.json/root: root ok (ed6d42af92936b51...)
+  [OK  ] signature.json: algorithm/scheme pinned: ed25519 + sha256 rfc6962
+  [FAIL] signature.json: signer key not in trusted set: packet is signed by
+    e6ae7e06306b60a2c0e1be991e39b9d47a11f4db5d3b394f6dcd4470c5ef9e89 which is not an
+    authorized Amber signer (key substitution / forged-key packet).
+
+  [X] CHAIN OF CUSTODY BROKEN
+  broken at: signature.json                                  # exit code 1
+```
+
+The forged packet is *internally* flawless — and Amber still rejects it, because the brand holds the key and the attacker doesn't. An attacker who additionally rewrites the repo's `trusted_signers.txt` allowlist *still* can't help themselves: the security path is the `--pubkey` you supply out-of-band, not the allowlist in the repo. **This is the line between tamper-evident and tamper-proof.** (Run it yourself: the attack is reproduced exactly by `pytest tests/test_packet_verify.py::test_key_substitution_forge_is_red`.)
+
 ---
 
 ## Quick links
@@ -237,6 +317,21 @@ The packet ships with **no private key** — `signature.json` is the public key 
 ```bash
 pytest          # 323 passing — GREEN on the intact packet; RED on every tamper case
 ```
+
+---
+
+## Threat model — what the packet proves, and what it does NOT
+
+Security is what you can *defend*, not what you assert. The honest boundary:
+
+- **PROVES:** the request **exited a country-confirmed residential IP** (exit-IP RIR matches the requested country) and the returned bytes are **ed25519-signed + Merkle-committed** — so the capture is **tamper-evident AND tamper-proof**: edit any signed byte and `verify_packet` flashes RED, and a re-signed forgery is rejected because the signer key is pinned out-of-band.
+- **Does NOT prove causation.** Geo-attribution here is **`EXIT_ONLY`**, not `CONFIRMED`: the packet shows the request left a DE/BE residential exit and the store served a country page — it does **not** prove the store served that page *because of* the exit IP. The geo variable actually doing the work is the **ccTLD storefront** (`.de` vs `.be`), not the exit IP. We reserve the "served-because-of-country" causal claim for the `GEO_BLOCKED` path, which requires **≥2 causally-independent signals** and is **not** claimed for this price-delta packet.
+- **Does NOT defeat server-side cloaking.** A storefront that fingerprints residential proxies and serves a sanitized page can still fool the capture; Amber signs *what was returned*, not *whether the server told the truth*.
+- **Trust is out-of-band.** The whole proof rests on verifying against a signer key you obtain **independently** (`--pubkey`, e.g. from the PR description or a published fingerprint), **not** the key inside the packet — a self-attesting packet proves only "signed by whoever signed it." The committed `trusted_signers.txt` allowlist is a fresh-clone *convenience default*, **not** a security boundary against a repo-modifying attacker; the `--pubkey` pin is.
+- **The named attack: key substitution.** An attacker who edits a fact, recomputes the root, and re-signs with their own fresh key produces an internally-consistent packet — and the verifier **defeats it by pinning the signer key** (RED: "signer key not in trusted set"; transcript above). With **no** trusted key from any source, the verifier **fails closed** rather than emit GREEN.
+- **"Dispatched," not "witnessed."** Captures are *dispatched* the same second (`dispatched_same_second=true`, a signed fact); residential **responses** physically land seconds apart (`same_second_batch=false`, reported honestly) — we never claim a witnessed same-second.
+
+No "court-admissible," no "violation." The packet is integrity-attested evidence a human reads; it does not adjudicate law.
 
 ---
 
