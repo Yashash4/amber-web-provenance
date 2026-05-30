@@ -340,13 +340,16 @@ def test_batch_dispatches_all_captures_concurrently(monkeypatch):
     lock = threading.Lock()
 
     def fake_capture_one(creds, url, country, session, capture_id, *, timeout):
-        dispatched = datetime.now(UTC)
         with lock:
             seen_sessions.append(session)
             seen_threads.add(threading.get_ident())
         # Block until ALL captures have entered: deadlocks (and times out) unless
         # they were dispatched concurrently.
         barrier.wait()
+        # Stamp AFTER the barrier so all dispatched_at values are within
+        # microseconds of each other — the spread is then deterministically
+        # well under 1 s regardless of OS scheduling delays before the barrier.
+        dispatched = datetime.now(UTC)
         rec = CaptureRecord(
             capture_id=capture_id,
             url=url,
