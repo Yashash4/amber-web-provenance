@@ -10,7 +10,7 @@
 [![Web Data UNLOCKED](https://img.shields.io/badge/lablab.ai-Web%20Data%20UNLOCKED-b45309.svg)](https://lablab.ai/)
 [![Status: live · verify_packet GREEN](https://img.shields.io/badge/status-live%20·%20verify__packet%20GREEN-16a34a.svg)](#receipts-re-run-every-one-yourself)
 [![Built on Bright Data](https://img.shields.io/badge/Built%20on-Bright%20Data-f59e0b.svg)](https://brightdata.com/)
-[![Tests: 323 passing](https://img.shields.io/badge/tests-323%20passing-16a34a.svg)](#whats-in-the-box)
+[![Tests: 324 passing](https://img.shields.io/badge/tests-324%20passing-16a34a.svg)](#whats-in-the-box)
 
 </div>
 
@@ -36,7 +36,7 @@ The crypto isn't the product. **The recovered margin is the product.** The signi
 | **The contribute-back PR (the trophy)** | `geo_fanout` tool + classified retry/backoff, table-driven tests, no TODOs — **opened** against the sponsor's repo, closes #104 | [github.com/brightdata/brightdata-mcp/pull/141](https://github.com/brightdata/brightdata-mcp/pull/141) |
 | **The 3-model legal jury (gold-set, not consensus theater)** | Google `gemini-2.0-flash` **1.000** · Anthropic `claude-sonnet-4-5` 0.875 · OpenAI `gpt-4o-mini` 0.750 · 3-model **consensus 0.875** (perfect on the decisive labels) | `amber-jury goldset` |
 
-**Why beat-the-twin matters:** a competitor can *hash* a capture (a single SHA-256) — but you can recompute that hash, so anyone who controls the file controls the "proof." Amber **signs** the Merkle root with a private key you don't hold, and `verify_packet` checks it against the signer's **independently-published** public key (`--pubkey`, supplied out-of-band). An attacker who edits a fact *and* re-signs *and* rewrites the repo's allowlist **still can't forge a GREEN**, because you hold the key. Hashing is tamper-*evident*; signing is tamper-*proof*. Of the 46 teams in the field, **0 sign anything.**
+**Why beat-the-twin matters:** a competitor can *hash* a capture (a single SHA-256) — but you can recompute that hash, so anyone who controls the file controls the "proof." Amber **signs** the Merkle root with a private key you don't hold, and `verify_packet` checks it against the signer's **independently-published** public key (`--pubkey`, supplied out-of-band). An attacker who edits a fact *and* re-signs *and* rewrites the repo's allowlist **still can't forge a GREEN**, because you hold the key. Hashing is tamper-*evident*; signing is tamper-*proof*. Across the entire field, **0 teams sign anything.**
 
 ### Reproduce it on a clean clone — the 3 commands a judge runs
 
@@ -160,7 +160,7 @@ recoverable_margin_eur_per_year = net_of_tax_delta_per_unit × annual_diverted_u
 
 Brand protection / anti-counterfeiting is a real, funded category: **Red Points** (~$1.2M/yr enterprise contracts), **MarqVision**, **Corsearch**. Every one of them ships a **dashboard** — a vendor asserting a finding the brand cannot independently verify. That is fine for a takedown queue; it is **not** enough to terminate a distributor or anchor a claim, where the distributor's counsel will ask *"prove this number is real and unaltered."*
 
-Amber occupies the **empty quadrant**: *signed, independently re-verifiable, geo-attributed* web-state evidence. Across the 46 teams in this hackathon's field, **none sign their captures** — the closest (a single SHA-256 hash) is tamper-*evident*, not tamper-*proof*, and ships no verifier. Amber is the only **chain-of-custody attestation for agent-collected web data**, which is also the cleanest unique angle for the Security track.
+Amber occupies the **empty quadrant**: *signed, independently re-verifiable, geo-attributed* web-state evidence. Across this hackathon's entire field, **none sign their captures** — the closest (a single SHA-256 hash) is tamper-*evident*, not tamper-*proof*, and ships no verifier. Amber is the only **chain-of-custody attestation for agent-collected web data**, which is also the cleanest unique angle for the Security track.
 
 ---
 
@@ -312,10 +312,10 @@ The packet ships with **no private key** — `signature.json` is the public key 
 | **Layer-2 · event workflow** | [`amber/workflow/`](./amber/workflow) | Signed delta → TriggerWare trigger → brand-protection alert (the signed FACT). | 50 |
 | **Demo UI** | [`web/`](./web) | Next.js 14 + Tailwind. Split-frame catch · within-country control · THE TAMPER PROOF (RED/GREEN = the real `verify_packet` exit code) · one live cell · one-command offline run. | — |
 
-**Test counts:** **323 passing**, 3 skipped (opt-in live smoke tests for the jury / memory / workflow, run with `AMBER_*_LIVE=1`). `ruff` clean; `tsc --noEmit` + `next build` + `next lint` clean. Zero `TODO`/`FIXME` markers in shipped code.
+**Test counts:** **324 passing**, 3 skipped (opt-in live smoke tests for the jury / memory / workflow, run with `AMBER_*_LIVE=1`). `ruff` clean; `tsc --noEmit` + `next build` + `next lint` clean. Zero `TODO`/`FIXME` markers in shipped code.
 
 ```bash
-pytest          # 323 passing — GREEN on the intact packet; RED on every tamper case
+pytest          # 324 passing — GREEN on the intact packet; RED on every tamper case
 ```
 
 ---
