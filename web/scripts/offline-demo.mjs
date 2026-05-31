@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * Amber Component 3 — the OFFLINE GOLDEN RUN, one command, no server, no network.
+ * Amber Component 3 - the OFFLINE GOLDEN RUN, one command, no server, no network.
  *
  *   cd code/web && npm run demo
  *
  * It drives the FULL tamper-proof cycle against the committed golden packet,
  * end to end, through the REAL python `verify_packet`:
  *
- *   1. export   — copy the committed packet to a private working copy
- *   2. verify   — REAL verify_packet  -> expect GREEN (exit 0)
- *   3. tamper   — edit a number in the working copy's facts.json
- *   4. verify   — REAL verify_packet  -> expect RED   (exit 1)
- *   5. revert   — restore the sealed bytes
- *   6. verify   — REAL verify_packet  -> expect GREEN (exit 0)
+ *   1. export   - copy the committed packet to a private working copy
+ *   2. verify   - REAL verify_packet  -> expect GREEN (exit 0)
+ *   3. tamper   - edit a number in the working copy's facts.json
+ *   4. verify   - REAL verify_packet  -> expect RED   (exit 1)
+ *   5. revert   - restore the sealed bytes
+ *   6. verify   - REAL verify_packet  -> expect GREEN (exit 0)
  *
- * The GREEN/RED at every step is the python process EXIT CODE — never hardcoded.
+ * The GREEN/RED at every step is the python process EXIT CODE - never hardcoded.
  * The script asserts the cycle (GREEN, RED, GREEN) and exits non-zero if the
  * real verifier ever disagrees, so this doubles as GATE-3 self-verification.
  *
@@ -39,8 +39,8 @@ const REPO_ROOT = resolve(WEB_ROOT, "..");
 /**
  * Packet default precedence (mirrors web/lib/paths.ts):
  *   1. AMBER_PACKET_DIR (explicit override)
- *   2. samples/live_packet  — the REAL BD DE/BE residential catch, when present
- *   3. samples/floor_demo_packet — the committed labelled fixture fallback
+ *   2. samples/live_packet  - the REAL BD DE/BE residential catch, when present
+ *   3. samples/floor_demo_packet - the committed labelled fixture fallback
  */
 function defaultPacketDir() {
   const livePacket = join(REPO_ROOT, "samples", "live_packet");
@@ -93,7 +93,7 @@ function verify() {
 function banner(label, code) {
   const ok = code === 0;
   const color = ok ? GREEN : RED;
-  const verdict = ok ? "GREEN — VERIFIED" : "RED — CHAIN OF CUSTODY BROKEN";
+  const verdict = ok ? "GREEN - VERIFIED" : "RED - CHAIN OF CUSTODY BROKEN";
   console.log(`${color}  [${label}] ${verdict}  (real exit code ${code})${RESET}`);
 }
 
@@ -106,9 +106,9 @@ function fail(msg) {
   process.exit(1);
 }
 
-console.log(`${GREEN}Amber — offline golden run (Component 3)${RESET}`);
+console.log(`${GREEN}Amber - offline golden run (Component 3)${RESET}`);
 console.log(`${DIM}interpreter : ${PY}${RESET}`);
-console.log(`${DIM}packet      : ${PACKET_DIR}${PACKET_DIR.includes("floor_demo_packet") ? "  (LABELLED FIXTURE — not a real BD capture)" : ""}${RESET}`);
+console.log(`${DIM}packet      : ${PACKET_DIR}${PACKET_DIR.includes("floor_demo_packet") ? "  (LABELLED FIXTURE - not a real BD capture)" : ""}${RESET}`);
 console.log(`${DIM}working copy: ${WORK_DIR}${RESET}`);
 console.log(`${DIM}trusted key : ${TRUSTED_PUBKEY.slice(0, 16)}…${RESET}`);
 
@@ -117,7 +117,7 @@ if (!existsSync(join(PACKET_DIR, "facts.json"))) {
 }
 
 // 1. export (copy committed packet -> private working copy; source is untouched)
-step(1, "export packet (working copy from committed source — source never mutated)");
+step(1, "export packet (working copy from committed source - source never mutated)");
 if (existsSync(WORK_DIR)) rmSync(WORK_DIR, { recursive: true, force: true });
 mkdirSync(WORK_DIR, { recursive: true });
 cpSync(PACKET_DIR, WORK_DIR, { recursive: true });
@@ -153,7 +153,7 @@ step(4, "run REAL verify_packet on the tampered packet");
 r = verify();
 console.log(r.out.trimEnd());
 banner("TAMPERED", r.code);
-if (r.code === 0) fail("tampered packet still verified GREEN — the tamper-proof is broken!");
+if (r.code === 0) fail("tampered packet still verified GREEN - the tamper-proof is broken!");
 
 // 5. revert
 step(5, "revert to the sealed bytes (restore working copy from source)");

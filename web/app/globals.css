@@ -8,21 +8,69 @@
 
 html,
 body {
-  background: #0a0a0b;
+  background: #07070a;
   color: #e7e7ea;
 }
 
-/* Subtle scanline texture for the forensic-instrument feel. */
-.instrument-grid {
+/* Ambient dashboard backdrop: a deep radial wash plus a faint forensic grid. */
+.dash-bg {
+  background-color: #07070a;
   background-image:
-    linear-gradient(rgba(245, 158, 11, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(245, 158, 11, 0.04) 1px, transparent 1px);
-  background-size: 28px 28px;
+    radial-gradient(900px 520px at 82% -8%, rgba(245, 158, 11, 0.10), transparent 60%),
+    radial-gradient(760px 480px at 8% 4%, rgba(99, 102, 241, 0.08), transparent 55%),
+    linear-gradient(rgba(245, 158, 11, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245, 158, 11, 0.028) 1px, transparent 1px);
+  background-size: auto, auto, 30px 30px, 30px 30px;
+}
+
+/* A frosted instrument panel. */
+.panel-card {
+  background: linear-gradient(180deg, rgba(22, 22, 28, 0.92), rgba(13, 13, 18, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+    0 18px 40px -28px rgba(0, 0, 0, 0.9);
+}
+
+/* The signed / amber accent panel. */
+.panel-amber {
+  background:
+    linear-gradient(180deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.03)),
+    linear-gradient(180deg, rgba(22, 22, 28, 0.9), rgba(13, 13, 18, 0.9));
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 14px;
+}
+
+.glow-amber {
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.20), 0 0 48px -10px rgba(245, 158, 11, 0.45);
+}
+.glow-verified {
+  box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.30), 0 0 60px -8px rgba(22, 163, 74, 0.55);
+}
+.glow-broken {
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.35), 0 0 64px -6px rgba(220, 38, 38, 0.6);
+}
+
+/* Section eyebrow label. */
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Live status chip pulse. */
+@keyframes chip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.chip-dot {
+  animation: chip-pulse 1.8s ease-in-out infinite;
 }
 
 @keyframes pulse-broken {
   0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
-  50% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+  50% { box-shadow: 0 0 0 14px rgba(220, 38, 38, 0); }
 }
 .animate-broken {
   animation: pulse-broken 1.2s ease-out 2;
@@ -30,8 +78,21 @@ body {
 
 @keyframes pulse-verified {
   0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5); }
-  50% { box-shadow: 0 0 0 12px rgba(22, 163, 74, 0); }
+  50% { box-shadow: 0 0 0 14px rgba(22, 163, 74, 0); }
 }
 .animate-verified {
   animation: pulse-verified 1.2s ease-out 2;
+}
+
+/* Tasteful custom scrollbar inside the verifier console. */
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }

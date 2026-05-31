@@ -9,16 +9,18 @@ function countryName(c: string): string {
   return { DE: "Germany", BE: "Belgium", FR: "France", NL: "Netherlands" }[c] ?? c;
 }
 
+const DASH = "·";
+
 /**
  * The honest simultaneity phrase for the banner, derived from the packet flags.
  * NEVER claims "same second" / "witnessed same second" when the witnessed
  * responses span more than a second (residential fetches each take seconds, so a
  * witnessed-same-second batch is physically impossible). We word it as DISPATCH:
  *
- *  - dispatched within the same second → "dispatched the same second across N exits"
- *  - witnessed responses also within a second → can additionally say "witnessed
+ *  - dispatched within the same second: "dispatched the same second across N exits"
+ *  - witnessed responses also within a second: can additionally say "witnessed
  *    within one second" (rare, but honest when true)
- *  - neither known → no simultaneity clause at all (never overclaim).
+ *  - neither known: no simultaneity clause at all (never overclaim).
  */
 function simultaneityClause(view: PacketView, nExits: number): string | null {
   if (view.dispatchedSameSecond === true) {
@@ -27,198 +29,192 @@ function simultaneityClause(view: PacketView, nExits: number): string | null {
     }`;
   }
   if (view.sameSecondBatch) {
-    // Witnessed responses landed within one second (only honest when actually true).
     return "responses witnessed within one second";
   }
   return null;
 }
 
-/** The short header sub-line label for batch timing — dispatch-worded, honest. */
+/** The short header sub-line label for batch timing (dispatch-worded, honest). */
 function batchTimingLabel(view: PacketView): string {
-  if (view.dispatchedSameSecond === true) return "dispatched same-second batch";
-  if (view.dispatchedSameSecond === false)
-    return "dispatch spread > 1s (honestly flagged)";
+  if (view.dispatchedSameSecond === true) return "dispatched same-second";
+  if (view.dispatchedSameSecond === false) return "dispatch spread over 1s (flagged)";
   if (view.sameSecondBatch) return "responses within one second";
-  return "multi-second batch (honestly flagged)";
+  return "multi-second batch (flagged)";
 }
 
-/** One residential session card (one capture / one exit IP). */
-function SessionCard({ pc, primary }: { pc: PerCaptureView; primary: boolean }) {
-  return (
-    <div
-      className={`rounded-md border px-3 py-2 ${
-        primary ? "border-amber/40 bg-panel" : "border-white/10 bg-black/30"
-      }`}
-    >
-      <div className="flex items-center justify-between text-xs text-white/50">
-        <span>{pc.captureId}</span>
-        <span>exit {pc.exitIp}</span>
-      </div>
-      <div className="mt-1 flex items-baseline justify-between">
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-white/40">gross</div>
-          <div className="text-lg text-white/80">
-            {pc.priceGross} {pc.currency}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-[11px] uppercase tracking-wide text-amber/70">net of tax</div>
-          <div className="text-xl font-bold text-amber">
-            {pc.priceNet} {pc.currency}
-          </div>
-        </div>
-      </div>
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-white/50">
-        <span>VAT {(Number(pc.vatRate) * 100).toFixed(0)}%</span>
-        <span>{pc.contentLanguage ?? "—"}</span>
-        <span>HTTP {pc.httpStatus ?? "—"}</span>
-        <span className="text-white/40">geo: {pc.geoAgreement}</span>
-        <span className="text-white/70">{pc.state}</span>
-      </div>
-    </div>
-  );
-}
-
-/** One country column = all of that country's residential sessions. */
-function CountryColumn({
+/**
+ * One country half of the hero split panel: the flag, the struck gross price,
+ * the big net-of-tax price, and the VAT rate badge. The dearer side is tinted
+ * amber (the signed gap lives there); the cheaper side stays neutral.
+ */
+function CountryHalf({
   country,
-  captures,
+  gross,
+  net,
+  vatRate,
   url,
+  dearer,
 }: {
   country: string;
-  captures: PerCaptureView[];
+  gross: string;
+  net: string;
+  vatRate: string;
   url: string;
+  dearer: boolean;
 }) {
-  const flag = FLAGS[country] ?? "🌐";
   return (
-    <div className="flex-1">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="text-2xl">{flag}</span>
-        <div className="min-w-0">
-          <div className="text-sm font-bold">{countryName(country)}</div>
-          <div className="text-[11px] text-white/40">
-            {captures.length} residential exit{captures.length === 1 ? "" : "s"}
+    <div
+      className={`flex-1 rounded-xl border p-5 ${
+        dearer
+          ? "border-amber/40 bg-gradient-to-b from-amber/10 to-transparent"
+          : "border-white/10 bg-white/[0.02]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <span className="text-3xl leading-none">{FLAGS[country] ?? "🌐"}</span>
+          <div>
+            <div className="text-sm font-bold text-white/90">{countryName(country)}</div>
+            <div className="text-[11px] text-white/40">{country}</div>
           </div>
         </div>
+        <span
+          className={`rounded-md px-2 py-1 text-[11px] font-semibold ${
+            dearer ? "bg-amber/15 text-amber" : "bg-white/5 text-white/55"
+          }`}
+        >
+          VAT {(Number(vatRate) * 100).toFixed(0)}%
+        </span>
       </div>
+
+      <div className="mt-5">
+        <div className="text-[11px] text-white/40 line-through">
+          gross {gross} EUR incl. VAT
+        </div>
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="text-[13px] text-white/50">EUR</span>
+          <span
+            className={`text-4xl font-black tracking-tight tabular-nums sm:text-5xl ${
+              dearer ? "text-amber" : "text-white/90"
+            }`}
+          >
+            {net}
+          </span>
+        </div>
+        <div className="mt-1 text-[11px] uppercase tracking-wide text-white/40">
+          net of tax {DASH} purchasable {DASH} in stock
+        </div>
+      </div>
+
       {url ? (
         <a
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="mb-2 block truncate text-[11px] text-amber/70 underline decoration-dotted underline-offset-2 hover:text-amber"
+          className="mt-4 block truncate text-[11px] text-white/35 underline decoration-dotted underline-offset-2 hover:text-amber"
           title={url}
         >
           {url}
         </a>
       ) : null}
-      <div className="flex flex-col gap-2">
-        {captures.map((pc, i) => (
-          <SessionCard key={pc.captureId} pc={pc} primary={i === 0} />
-        ))}
-      </div>
     </div>
   );
 }
 
 /**
- * The split-frame catch: the hero pair of countries side by side, rendered
- * FROM the signed packet. The banner states the SIGNED FACT only — never
- * "violation," never an invented threshold number. Framed as a brand
- * monitoring its OWN SKUs.
+ * THE CATCH (hero): the dearer country vs the cheaper country for the same SKU,
+ * side by side, with the signed net-of-tax gap badge in the center. Rendered
+ * FROM the signed packet. The center badge states the SIGNED FACT only: never
+ * "violation," never an invented threshold number. Framed as a brand monitoring
+ * its OWN SKUs.
  */
 export function SplitFrame({ view }: { view: PacketView }) {
-  const byCountry = new Map<string, PerCaptureView[]>();
-  for (const pc of view.perCapture) {
-    const list = byCountry.get(pc.country) ?? [];
-    list.push(pc);
-    byCountry.set(pc.country, list);
-  }
-  const countries = view.countries.length ? view.countries : Array.from(byCountry.keys());
+  const dearerCountry = view.moreExpensiveCountry ?? view.countries[0];
+  const cheaperCountry = view.cheaperCountry ?? view.countries[1];
+
+  const capFor = (c: string | null): PerCaptureView | undefined =>
+    view.perCapture.find((p) => p.country === c);
+  const dearerCap = capFor(dearerCountry);
+  const cheaperCap = capFor(cheaperCountry);
+
+  const clause = simultaneityClause(view, view.perCapture.length);
 
   return (
     <section className="space-y-3">
-      <header className="space-y-1">
-        <div className="text-xs uppercase tracking-widest text-amber/70">
-          Split-frame catch — a brand monitoring its OWN SKUs
-        </div>
-        <h2 className="text-lg font-bold">{view.skuLabel}</h2>
-        <div className="text-[11px] text-white/40">
-          {urlList(view.url).join(" · ") || "—"} · GTIN {view.canonicalGtin ?? "—"} (
-          {view.gtinConfidence ?? "—"}) · {batchTimingLabel(view)} · requested_at{" "}
-          {view.requestedAtValues.join(", ")}
-        </div>
-      </header>
+      <SectionHead
+        eyebrow="The catch"
+        title={view.skuLabel}
+        sub={
+          <>
+            {urlList(view.url).join(` ${DASH} `) || "n/a"} {DASH} GTIN{" "}
+            {view.canonicalGtin ?? "n/a"} ({view.gtinConfidence ?? "n/a"}) {DASH}{" "}
+            {batchTimingLabel(view)} {DASH} a brand monitoring its OWN SKUs
+          </>
+        }
+      />
 
-      <SignedFactBanner view={view} />
+      <div className="panel-card glow-amber overflow-hidden p-4 sm:p-6">
+        {/* The split hero. */}
+        <div className="relative flex flex-col items-stretch gap-4 lg:flex-row lg:items-center">
+          {dearerCap && dearerCountry ? (
+            <CountryHalf
+              country={dearerCountry}
+              gross={dearerCap.priceGross}
+              net={view.moreExpensiveNet ?? dearerCap.priceNet}
+              vatRate={dearerCap.vatRate}
+              url={urlForCountry(view.url, dearerCountry)}
+              dearer
+            />
+          ) : null}
 
-      <div className="flex flex-col gap-4 md:flex-row">
-        {countries.map((c) => (
-          <CountryColumn
-            key={c}
-            country={c}
-            captures={byCountry.get(c) ?? []}
-            url={urlForCountry(view.url, c)}
-          />
-        ))}
+          {/* Center gap badge. */}
+          <div className="z-10 mx-auto flex shrink-0 flex-col items-center lg:mx-0">
+            <div className="rounded-2xl border-2 border-amber bg-[#0a0a0c] px-5 py-4 text-center shadow-[0_0_40px_-8px_rgba(245,158,11,0.6)]">
+              <div className="eyebrow text-amber/70">net-of-tax gap</div>
+              <div className="mt-1 text-3xl font-black tabular-nums text-amber">
+                +EUR {view.netDelta ?? "n/a"}
+              </div>
+              <div className="text-[11px] text-amber/80">/ unit</div>
+              <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber/40 bg-amber/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber">
+                signed, not VAT
+              </div>
+            </div>
+          </div>
+
+          {cheaperCap && cheaperCountry ? (
+            <CountryHalf
+              country={cheaperCountry}
+              gross={cheaperCap.priceGross}
+              net={view.cheaperNet ?? cheaperCap.priceNet}
+              vatRate={cheaperCap.vatRate}
+              url={urlForCountry(view.url, cheaperCountry)}
+              dearer={false}
+            />
+          ) : null}
+        </div>
+
+        {/* The signed-fact statement strip. */}
+        <div className="mt-5 rounded-lg border border-amber/30 bg-amber/[0.06] px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-extrabold tracking-wide text-amber">
+            <span className="h-2 w-2 rounded-full bg-amber" aria-hidden />
+            PRICE DELTA DETECTED {DASH} signed, net-of-tax
+            {clause ? `, ${clause}` : ""}, chain of custody intact
+          </div>
+          <p className="mt-1.5 text-[12px] text-white/55">
+            The signed packet records this fact only. A human draws any legal conclusion. Geo is{" "}
+            <span className="text-white/75">EXIT_ONLY</span> (the country is the proxy exit, not a
+            GPS witness); captures were dispatched the same instant, not witnessed the same instant.
+          </p>
+        </div>
+
+        <VatInversionLine view={view} />
       </div>
     </section>
   );
 }
 
 /**
- * The banner. States the SIGNED FACT only. The wording is exactly the locked
- * phrasing from docs/40-SUBMISSION.md + 24-GROUNDING.md: no "violation," no
- * invented threshold number. It reflects the packet's primary finding —
- * a net-of-tax price delta OR an access/payment denial.
- */
-function SignedFactBanner({ view }: { view: PacketView }) {
-  const isDenial = Boolean(view.accessDenial);
-  const clause = simultaneityClause(view, view.perCapture.length);
-  if (isDenial) {
-    return (
-      <div className="rounded-md border-2 border-amber bg-amber/15 px-4 py-3">
-        <div className="text-sm font-extrabold tracking-wide text-amber">
-          ACCESS / PAYMENT DENIAL DETECTED — signed
-          {clause ? `, ${clause}` : ""}, chain of custody
-        </div>
-        <div className="mt-1 text-xs text-white/60">
-          A residential session was refused access/checkout that another country was granted
-          {clause ? `, ${clause},` : ""} on the same SKU. The signed packet records the fact; a
-          human draws any legal conclusion.
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-md border-2 border-amber bg-amber/15 px-4 py-3">
-      <div className="text-sm font-extrabold tracking-wide text-amber">
-        PRICE DELTA DETECTED — signed, net-of-tax
-        {clause ? `, ${clause}` : ""}, chain of custody
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-        <Stat label="gross delta" value={`${view.grossDelta ?? "—"} EUR`} muted />
-        <Stat label="net-of-tax delta" value={`${view.netDelta ?? "—"} EUR`} />
-        <Stat
-          label="cheaper (net)"
-          value={`${view.cheaperCountry ?? "—"} ${view.cheaperNet ?? ""}`}
-        />
-        <Stat
-          label="more expensive (net)"
-          value={`${view.moreExpensiveCountry ?? "—"} ${view.moreExpensiveNet ?? ""}`}
-        />
-      </div>
-      <VatInversionLine view={view} />
-      <DollarCard view={view} />
-      <div className="mt-2 text-xs text-white/60">
-        The signed packet records this fact only — a human draws any legal conclusion.
-      </div>
-    </div>
-  );
-}
-
-/**
- * The VAT-inversion line — kills the "€10.75 is just VAT" objection. When the
+ * The VAT-inversion line: kills the "the gap is just VAT" objection. When the
  * dearer-net country is also the LOWER-VAT country, the gap cannot be a tax
  * artifact (stripping the higher tax would make it cheaper, not dearer). Derived
  * from the packet's own per-capture VAT rates; only shown when the inversion
@@ -238,67 +234,36 @@ function VatInversionLine({ view }: { view: PacketView }) {
   // The inversion: the dearer-NET country has the LOWER VAT.
   if (!(dearerVat < cheaperVat)) return null;
   return (
-    <div className="mt-2 rounded border border-amber/30 bg-black/30 px-3 py-2 text-xs text-white/70">
-      <span className="font-bold text-amber/80">Not tax — the channel.</span> {countryName(dearer)}{" "}
-      is the <span className="text-amber">lower-VAT</span> country ({(dearerVat * 100).toFixed(0)}%)
-      yet charges <span className="text-amber">more net</span> ({view.moreExpensiveNet} vs{" "}
-      {countryName(cheaper)} {view.cheaperNet} EUR at {(cheaperVat * 100).toFixed(0)}%). Stripping the
-      tax doesn&apos;t close the gap — it widens it. The {view.netDelta} EUR is NOT explained by VAT.
+    <div className="mt-4 flex items-start gap-3 rounded-lg border border-advisory/30 bg-advisory/[0.06] px-4 py-3">
+      <span className="mt-0.5 shrink-0 rounded-md bg-advisory/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-advisory">
+        why it is not the tax
+      </span>
+      <p className="text-[12px] leading-relaxed text-white/65">
+        {countryName(dearer)} has the <span className="font-semibold text-white/85">lower VAT</span>{" "}
+        ({(dearerVat * 100).toFixed(0)}%) yet the{" "}
+        <span className="font-semibold text-white/85">higher net price</span>, so stripping tax
+        widens the gap (gross EUR {view.grossDelta} to net EUR {view.netDelta}). The gap is the
+        channel, not the tax.
+      </p>
     </div>
   );
 }
 
-/** Group a plain integer with thin thousands separators (locale-independent). */
-function groupThousands(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-/**
- * The BUSINESS-FIRST $ card: the signed €/unit delta × a BUYER-SUPPLIED annual
- * volume → a €/yr recoverable-margin figure. The volume is labeled an ASSUMPTION
- * on screen (never observed); the per-unit delta is the signed measurement. This
- * is the one money card that turns a forensic curiosity into a CRO-legible
- * outcome — kept to ONE card, never a fabricated TAM.
- */
-function DollarCard({ view }: { view: PacketView }) {
-  const bi = view.businessImpact;
-  if (!bi) return null;
-  const eur = Number(bi.recoverableMarginEurPerYear);
-  const pretty = Number.isFinite(eur) ? groupThousands(eur) : bi.recoverableMarginEurPerYear;
+/** A consistent section heading: eyebrow label, title, optional sub-line. */
+export function SectionHead({
+  eyebrow,
+  title,
+  sub,
+}: {
+  eyebrow: string;
+  title: React.ReactNode;
+  sub?: React.ReactNode;
+}) {
   return (
-    <div className="mt-2 rounded-md border-2 border-amber/50 bg-amber/10 px-4 py-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <div>
-          <div className="text-[10px] uppercase tracking-widest text-amber/70">
-            recoverable margin / year
-          </div>
-          <div className="text-2xl font-black text-amber">
-            €{pretty}
-            <span className="ml-1 text-sm font-normal text-amber/70">/yr</span>
-          </div>
-        </div>
-        <div className="text-right text-[11px] text-white/55">
-          <div>
-            {bi.netDeltaPerUnit} {bi.currency}/unit signed delta
-          </div>
-          <div>× {groupThousands(bi.annualDivertedUnits)} units/yr</div>
-        </div>
-      </div>
-      <div className="mt-1 text-[11px] text-white/45">
-        <span className="rounded bg-black/40 px-1 py-0.5 text-amber/70">ASSUMPTION</span>{" "}
-        {groupThousands(bi.annualDivertedUnits)} units/yr is a{" "}
-        <span className="text-white/70">{bi.volumeBasis}</span>, not an Amber measurement. Amber
-        signs the per-unit delta; the brand supplies the volume.
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className="rounded bg-black/30 px-2 py-1">
-      <div className="text-[10px] uppercase tracking-wide text-white/40">{label}</div>
-      <div className={muted ? "text-white/60" : "font-bold text-amber"}>{value}</div>
-    </div>
+    <header className="space-y-1">
+      <div className="eyebrow text-amber/70">{eyebrow}</div>
+      <h2 className="text-base font-bold text-white/90 sm:text-lg">{title}</h2>
+      {sub ? <div className="text-[11px] text-white/40">{sub}</div> : null}
+    </header>
   );
 }

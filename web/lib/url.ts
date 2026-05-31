@@ -6,8 +6,8 @@
  * packet loader into the browser bundle.
  *
  * The packet's `url` field comes in TWO shapes and the UI must handle both:
- *   - a single string  — the labelled fixture's one canonical product page.
- *   - a `{ country: url }` map — a real per-country Bright Data capture, where
+ *   - a single string  - the labelled fixture's one canonical product page.
+ *   - a `{ country: url }` map - a real per-country Bright Data capture, where
  *     each market is fetched from its own storefront URL
  *     (e.g. `{ "DE": "...mediamarkt.de...", "BE": "...mediamarkt.be..." }`).
  * The map object is NEVER rendered directly as a React child.
@@ -39,7 +39,7 @@ export function isUrlMap(url: PacketUrl): url is Record<string, string> {
 
 /**
  * The URL to show for a single country. For a per-country map, returns that
- * country's URL (or "" if absent). For a single string, returns the string —
+ * country's URL (or "" if absent). For a single string, returns the string -
  * a fixture's one canonical URL applies to every column.
  */
 export function urlForCountry(url: PacketUrl, country: string): string {
@@ -48,7 +48,7 @@ export function urlForCountry(url: PacketUrl, country: string): string {
 }
 
 /**
- * Flatten the url into the list of distinct, non-empty URLs it carries — for a
+ * Flatten the url into the list of distinct, non-empty URLs it carries - for a
  * header summary line. A single string → one entry; a per-country map → its
  * distinct values (deduped, so identical per-country URLs collapse to one).
  */

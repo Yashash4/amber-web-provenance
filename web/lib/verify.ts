@@ -1,35 +1,13 @@
 import { spawn } from "node:child_process";
 
 import { DEMO_SIGNER_PUBKEY, pythonInterpreter, REPO_ROOT } from "./paths";
+import type { VerifyResult } from "./verify-types";
 
-/**
- * The result of running the REAL `verify_packet` over a packet directory.
- *
- * `verdict` is "VERIFIED" iff the python verifier exited 0, "BROKEN" iff it
- * exited non-zero. It is NEVER computed in TypeScript — it is a pure function
- * of the verifier's process exit code. That is the whole point of the
- * tamper-proof: the RED/GREEN on screen is the real instrument's verdict.
- */
-export interface VerifyResult {
-  verdict: "VERIFIED" | "BROKEN";
-  exitCode: number;
-  /** The verifier's per-node audit lines, parsed from its real stdout. */
-  checks: { node: string; ok: boolean; detail: string }[];
-  /** The node where the chain of custody broke (null when VERIFIED). */
-  brokenNode: string | null;
-  /** Full raw stdout/stderr from the real verifier — shown verbatim in the UI. */
-  rawOutput: string;
-  /** The exact argv that was spawned — surfaced so it is auditable it is real. */
-  command: string;
-  /**
-   * The trusted signer public key(s) the signature was PINNED to, supplied
-   * out-of-band via `--pubkey` (NOT read from inside the packet). Surfaced so
-   * the on-camera trust ceremony is explicit: the verifier trusts only this
-   * independently-published key, so editing the packet's bundled allowlist
-   * cannot help an attacker — the judge holds the key.
-   */
-  trustedPubkeys: string[];
-}
+// Re-export the Node-free result type so existing `import { VerifyResult } from
+// "@/lib/verify"` call sites keep working. The shape lives in `verify-types` so
+// client components can import it without pulling this Node-only spawner into
+// the browser bundle.
+export type { VerifyResult } from "./verify-types";
 
 /**
  * Parse the verifier's plain-text report into structured checks.

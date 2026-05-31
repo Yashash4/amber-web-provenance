@@ -10,23 +10,23 @@ import { join, resolve } from "node:path";
  * root so the demo runs from a fresh clone with no absolute paths baked in.
  */
 
-/** `code/` — the parent of `code/web/`. */
+/** `code/` - the parent of `code/web/`. */
 export const REPO_ROOT = resolve(process.cwd(), "..");
 
-/** `code/web/` — the Next.js project root (process.cwd() at runtime). */
+/** `code/web/` - the Next.js project root (process.cwd() at runtime). */
 export const WEB_ROOT = process.cwd();
 
 /**
  * The directory of the packet the demo renders + verifies. Override with
  * `AMBER_PACKET_DIR` (absolute, or relative to `code/`) to point the UI at any
- * packet dir — the UI reads whatever it is pointed at.
+ * packet dir - the UI reads whatever it is pointed at.
  *
  * Default precedence:
  *   1. `AMBER_PACKET_DIR` (explicit override).
- *   2. `samples/live_packet` — the REAL Bright Data DE/BE residential capture
+ *   2. `samples/live_packet` - the REAL Bright Data DE/BE residential capture
  *      (the €10.75 net-of-tax AirPods 4 catch), when present. This is the
  *      demo default so a fresh clone shows the real signed catch, not a fixture.
- *   3. `samples/floor_demo_packet` — the committed CONSTRUCTED FIXTURE fallback,
+ *   3. `samples/floor_demo_packet` - the committed CONSTRUCTED FIXTURE fallback,
  *      labelled a fixture everywhere in the UI; never presented as a real catch.
  */
 export function packetDir(): string {
@@ -55,9 +55,9 @@ export function workingPacketDir(): string {
  * Locate a Python interpreter that has the `amber` package importable.
  *
  * Precedence:
- *   1. `AMBER_PYTHON` env (explicit override — an absolute interpreter path).
+ *   1. `AMBER_PYTHON` env (explicit override - an absolute interpreter path).
  *   2. The repo virtualenv at `code/.venv/Scripts/python.exe` (Windows) or
- *      `code/.venv/bin/python` (POSIX) — this is where Components 1/2 installed
+ *      `code/.venv/bin/python` (POSIX) - this is where Components 1/2 installed
  *      the `amber` package, so it is the reliable default.
  *   3. `py` (the Windows launcher) / `python3` / `python` on PATH.
  *

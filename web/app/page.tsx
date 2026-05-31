@@ -1,65 +1,29 @@
-import { FixtureBanner } from "@/components/FixtureBanner";
+import { BusinessNumber } from "@/components/BusinessNumber";
+import { Header } from "@/components/Header";
 import { LiveCell } from "@/components/LiveCell";
+import { ProvenanceFooter } from "@/components/ProvenanceFooter";
 import { SplitFrame } from "@/components/SplitFrame";
 import { TamperProof } from "@/components/TamperProof";
 import { WithinCountryControl } from "@/components/WithinCountryControl";
-import { loadPacketView, readWorkingFacts, resetWorkingPacket } from "@/lib/packet";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { loadPacketView, readWorkingFacts } from "@/lib/packet";
 
 export default function Home() {
-  // Render the committed packet view server-side. Seed the editable working
-  // copy so the tamper-proof editor starts from the sealed bytes.
+  // Render the committed packet view from the bundled static data (no
+  // request-time filesystem, no Python). Seed the tamper-proof editor's working
+  // copy with the same sealed packet bytes.
   const view = loadPacketView();
-  let initialFacts: string;
-  try {
-    initialFacts = readWorkingFacts();
-  } catch {
-    resetWorkingPacket();
-    initialFacts = readWorkingFacts();
-  }
+  const initialFacts = readWorkingFacts();
 
   return (
-    <main className="instrument-grid min-h-screen px-4 py-8 sm:px-8">
-      <div className="mx-auto max-w-5xl space-y-8">
-        <header className="space-y-2 border-b border-white/10 pb-5">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">🟠</span>
-            <div>
-              <h1 className="text-2xl font-black tracking-tight text-amber">AMBER</h1>
-              <p className="text-xs text-white/50">
-                Premium brands lose millions a year to gray-market diversion — a distributor buys
-                cheap in one country and dumps it in another, wrecking the channel. Amber catches the
-                cross-border price gap across markets and turns it into a margin figure a brand can
-                act on. And because every observation is cryptographically signed and independently
-                re-verifiable, it&apos;s evidence you can act on — not a trust-me dashboard.
-              </p>
-            </div>
-          </div>
-        </header>
-
-        <FixtureBanner view={view} />
-
+    <main className="dash-bg min-h-screen">
+      <Header />
+      <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
         <SplitFrame view={view} />
-
-        <hr className="border-white/10" />
-
+        <BusinessNumber view={view} />
         <WithinCountryControl view={view} />
-
-        <hr className="border-white/10" />
-
         <TamperProof initialFacts={initialFacts} />
-
-        <hr className="border-white/10" />
-
         <LiveCell />
-
-        <footer className="border-t border-white/10 pt-5 text-[11px] text-white/30">
-          Offline golden run · the RED/GREEN verdict is the real{" "}
-          <code className="text-white/50">python -m amber.cli</code> exit code · point the UI at any
-          packet directory with <code className="text-white/50">AMBER_PACKET_DIR</code>.
-        </footer>
+        <ProvenanceFooter />
       </div>
     </main>
   );

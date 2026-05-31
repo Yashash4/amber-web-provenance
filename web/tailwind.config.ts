@@ -8,14 +8,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Amber palette — the forensic-instrument look.
+        // Amber palette: the forensic-instrument look.
         amber: {
           DEFAULT: "#f59e0b",
           deep: "#b45309",
         },
         verified: "#16a34a",
         broken: "#dc2626",
-        ink: "#0a0a0b",
+        advisory: "#818cf8",
+        ink: "#07070a",
         panel: "#15151a",
       },
       fontFamily: {

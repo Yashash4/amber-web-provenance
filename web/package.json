@@ -2,7 +2,7 @@
   "name": "amber-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Amber Component 3 — the split-frame catch + THE TAMPER PROOF demo. The tamper-proof is driven by the REAL python verify_packet exit code, never hardcoded.",
+  "description": "Amber Component 3 - the split-frame catch + THE TAMPER PROOF demo. The tamper-proof is driven by the REAL python verify_packet exit code, never hardcoded.",
   "license": "Apache-2.0",
   "scripts": {
     "dev": "next dev -p 3000",

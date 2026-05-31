@@ -1,11 +1,11 @@
-# Amber — Component 3: the split-frame catch + THE TAMPER PROOF
+# Amber - Component 3: the split-frame catch + THE TAMPER PROOF
 
 The demo UI (Next.js 14 + Tailwind). It renders a signed Amber evidence packet
-as a side-by-side split-frame catch and runs **THE TAMPER PROOF** — the climax —
+as a side-by-side split-frame catch and runs **THE TAMPER PROOF** - the climax -
 where the **RED/GREEN verdict is the REAL `verify_packet` process exit code**,
 never a hardcoded UI state.
 
-## One-command offline run (no server, no network) — GATE 3
+## One-command offline run (no server, no network) - GATE 3
 
 ```
 cd code/web
@@ -22,7 +22,7 @@ export -> verify (GREEN, exit 0) -> tamper a price -> verify (RED, exit 1) -> re
 
 It asserts the GREEN→RED→GREEN sequence and exits non-zero if the real verifier
 ever disagrees, so it is also the GATE-3 self-check. The committed packet under
-`samples/` is **never mutated** — the cycle runs on a private working copy under
+`samples/` is **never mutated** - the cycle runs on a private working copy under
 `web/.amber-demo/` (gitignored).
 
 ## Interactive UI
@@ -34,9 +34,9 @@ npm run dev          # http://localhost:3000
 
 Same machinery as `npm run demo`, with buttons:
 
-1. **Export packet** — copies the committed packet to the editable working copy and runs the real verifier (GREEN).
-2. **Edit a price** — changes a number in `facts.json` (a Merkle leaf), then runs the real verifier → **RED "CHAIN OF CUSTODY BROKEN"** at `facts.json`.
-3. **Revert** — restores the sealed bytes and re-verifies → **GREEN "VERIFIED"**.
+1. **Export packet** - copies the committed packet to the editable working copy and runs the real verifier (GREEN).
+2. **Edit a price** - changes a number in `facts.json` (a Merkle leaf), then runs the real verifier → **RED "CHAIN OF CUSTODY BROKEN"** at `facts.json`.
+3. **Revert** - restores the sealed bytes and re-verifies → **GREEN "VERIFIED"**.
 
 You can also free-edit the working `facts.json` in the textarea and click
 "Save my edits + verify".
@@ -65,22 +65,22 @@ stdout are shown in the UI so it is auditable that it is real.
 `lib/paths.ts` picks the interpreter in this order:
 
 1. `AMBER_PYTHON` env (explicit interpreter path), else
-2. the repo virtualenv `code/.venv/Scripts/python.exe` (Windows) / `code/.venv/bin/python` (POSIX) — where Components 1/2 installed the `amber` package, else
+2. the repo virtualenv `code/.venv/Scripts/python.exe` (Windows) / `code/.venv/bin/python` (POSIX) - where Components 1/2 installed the `amber` package, else
 3. `py` (Windows) / `python3` (POSIX) on PATH.
 
 If none has the `amber` package, the route returns a clear error telling you to
 set `AMBER_PYTHON`.
 
-## Fixture vs real — and swapping in the real packet
+## Fixture vs real - and swapping in the real packet
 
 The default packet is `samples/floor_demo_packet`, a **CONSTRUCTED FIXTURE**
 (its capture bodies carry a `_note` and its SKU label ends `(DEMO FIXTURE)`).
 The UI detects this from the actual bytes and shows a loud
-**"SAMPLE / FIXTURE DATA"** banner — fixture numbers are never presented as a
+**"SAMPLE / FIXTURE DATA"** banner - fixture numbers are never presented as a
 real catch.
 
 The real Bright Data DE/BE capture (a Component-2 `facts@2` packet, pending
-credentials) swaps in with **one environment variable** — the UI renders
+credentials) swaps in with **one environment variable** - the UI renders
 whatever packet directory it is pointed at:
 
 ```
@@ -96,7 +96,7 @@ When the swapped packet is not a fixture, the banner flips to
 
 The live-capture cell (`app/api/live/route.ts`) calls Component 2's real
 credential probe (`python -m amber.capture_cli creds`). Until Bright Data
-credentials exist it honestly shows **"live capture — pending Bright Data
+credentials exist it honestly shows **"live capture - pending Bright Data
 credentials"** (driven by the probe's real exit code) and **never fabricates a
 live result**. It arms automatically the moment `BRIGHTDATA_*` credentials are
 set.
@@ -114,5 +114,5 @@ set.
 `next` is pinned to `14.2.35` (latest 14.2.x patch). The remaining npm-audit
 advisories on the 14.x line all require Next 16 (a major breaking change) and
 apply only to internet-exposed deployments using middleware, the Image
-Optimizer, CSP nonces, i18n, or WebSocket upgrades — **none of which this local,
+Optimizer, CSP nonces, i18n, or WebSocket upgrades - **none of which this local,
 offline demo uses**. `postcss` is patched to `8.5.15`. All deps are MIT-licensed.

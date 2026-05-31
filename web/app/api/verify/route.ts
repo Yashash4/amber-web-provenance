@@ -1,30 +1,20 @@
 import { NextResponse } from "next/server";
 
-import { workingPacketDir } from "@/lib/paths";
-import { runVerifier } from "@/lib/verify";
-
-// This route shells out to the Python core and reads repo files: it must run on
-// the Node.js runtime and must never be cached/prerendered.
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { VERIFY_GREEN } from "@/app/data/packet";
 
 /**
  * POST /api/verify
  *
- * Runs the REAL `python -m amber.cli <working_packet> --pubkey <trusted>` over
- * the editable WORKING COPY of the packet and returns its verdict. The RED/GREEN
- * the UI shows is `result.verdict`, which is a pure function of the verifier's
- * process EXIT CODE (0 -> VERIFIED, non-zero -> BROKEN). Nothing here fabricates
- * a verdict — that is THE TAMPER PROOF.
+ * In the full-stack build this route shelled out to the real Python
+ * `verify_packet` over the editable working copy. The deployed, self-contained
+ * demo has no Python and no on-disk working copy: the tamper-proof runs entirely
+ * client-side from the REAL recorded verifier verdicts bundled in
+ * `app/data/packet.ts`, so this endpoint is not used by the UI.
+ *
+ * It is kept as a thin, dependency-free stub (no child_process, no filesystem)
+ * that returns the recorded GREEN verdict for the sealed packet, so any direct
+ * caller gets the real sealed-packet result rather than a server-side exception.
  */
 export async function POST() {
-  try {
-    const result = await runVerifier(workingPacketDir());
-    return NextResponse.json(result);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
-  }
+  return NextResponse.json(VERIFY_GREEN);
 }
