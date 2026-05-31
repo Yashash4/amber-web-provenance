@@ -18,13 +18,13 @@ A distributor buys cheap in one country and dumps it in another, wrecking the ch
 
 > *"Same product page, requests fired the same instant from Germany and Belgium, and the store showed different net prices. Amber caught the gap, dollarized it to **€537,500/yr** of recoverable margin, printed a **signed receipt the brand can act on** that you verify yourself offline, and shipped the geo layer back into Bright Data as an open-source PR."*
 
-The crypto isn't the product. **The recovered margin is the product.** The signing is *why a brand-protection VP can trust the number over a dashboard's word.* Amber **signs** its evidence, so editing a byte breaks the signature and a forged re-sign is rejected. That is the difference between *"a vendor told us"* and *"here is proof we can act on."*
+The crypto isn't the product. **The recoverable margin is the product.** The signing is *why a brand-protection VP can trust the number over a dashboard's word.* Amber **signs** its evidence, so editing a byte breaks the signature and a forged re-sign is rejected. That is the difference between *"a vendor told us"* and *"here is proof we can act on."*
 
 ---
 
 ## Receipts: re-run every one yourself
 
-> Receipts, not vibes. Every number below lives inside the signed packet that ships in this repo. Clone, run, and watch the verifier agree (or break on a tamper). No service, no network, no Amber account.
+> Receipts, not vibes. Every number below is real and re-runnable. The signed-packet rows verify offline with no service, no network, no Amber account; the one live row (the legal jury) is a real AI/ML API gold-set run, labeled as such.
 
 | What | The receipt | Re-run it yourself |
 |---|---|---|
@@ -34,7 +34,7 @@ The crypto isn't the product. **The recovered margin is the product.** The signi
 | **Dollarized to a business number** | **€10.75 × 50,000 units/yr = €537,500/yr** recoverable margin (volume is a *labeled buyer assumption*; Amber signs the per-unit delta) | `business_impact` block in [`facts.json`](./samples/live_packet/facts.json); determinism asserted in `tests/test_business_dollarize.py` |
 | **The within-country control (it's not exit-IP noise)** | 3 DE exits **all** net €150.42 (spread €0.00); 3 BE exits **all** net €139.67 (spread €0.00), so `all_intra_country_agree=true`. The only thing we changed was the country | `amber-memory persistence samples/live_packet` |
 | **The contribute-back PR (the trophy)** | `geo_fanout` tool plus classified retry/backoff, table-driven tests, no TODOs, **opened** against the sponsor's repo, closes #104 | [github.com/brightdata/brightdata-mcp/pull/141](https://github.com/brightdata/brightdata-mcp/pull/141) |
-| **The 3-model legal jury (gold-set, not consensus theater)** | Google `gemini-2.0-flash` **1.000** · Anthropic `claude-sonnet-4-5` 0.875 · OpenAI `gpt-4o-mini` 0.750 · 3-model **consensus 0.875** (perfect on the decisive labels) | `amber-jury goldset` |
+| **The 3-model legal jury (gold-set, not consensus theater)** | Live AI/ML API gold-set run: `gemini-2.0-flash` **1.000** and `gpt-4o-mini` **0.750** reproduce exactly; the `claude-sonnet-4-5` juror is provider-nondeterministic at temperature 0, so its score and the 3-model consensus shift run-to-run (~0.875 to 1.000). Any split routes to a human. | `amber-jury goldset` *(live; needs an AI/ML API key)* |
 
 **Why signed, not just hashed:** a bare hash (a single SHA-256) is tamper-*evident*, but anyone who controls the file can recompute it, so whoever holds the file holds the "proof." Amber **signs** the Merkle root with a private key you don't hold, and `verify_packet` checks it against the signer's **independently-published** public key (`--pubkey`, supplied out-of-band). An attacker who edits a fact *and* re-signs *and* rewrites the repo's allowlist **still can't forge a GREEN**, because you hold the key. Hashing is tamper-*evident*; signing is tamper-*proof*.
 
@@ -51,14 +51,14 @@ $ verify_packet samples/live_packet \
     --pubkey f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8
 trusted signer source: --pubkey (CLI) (1 key)
 verify_packet: samples/live_packet
-  [OK  ] be-01: body sha256 ok (dc804afaae9b6b8f...)
-  [OK  ] be-02: body sha256 ok (9b860165ee9a9c81...)
-  [OK  ] be-03: body sha256 ok (2bbeb7b0da6bb073...)
-  [OK  ] de-01: body sha256 ok (5315f603b653588b...)
-  [OK  ] de-02: body sha256 ok (9baa7f16fe3ecaa4...)
-  [OK  ] de-03: body sha256 ok (5315f603b653588b...)
+  [OK  ] be-01: body sha256 ok (d330b0359d0842ec...)
+  [OK  ] be-02: body sha256 ok (28b3183b444f0e26...)
+  [OK  ] be-03: body sha256 ok (c53ce8fed489b745...)
+  [OK  ] de-01: body sha256 ok (1127eb8160e177f9...)
+  [OK  ] de-02: body sha256 ok (399a7dc4a44590f5...)
+  [OK  ] de-03: body sha256 ok (1127eb8160e177f9...)
   [OK  ] merkle.json: leaf table matches recomputed leaves
-  [OK  ] merkle.json/root: root ok (da20841e40815fab...)
+  [OK  ] merkle.json/root: root ok (c5a6fc3887dfaf46...)
   [OK  ] signature.json: algorithm/scheme pinned: ed25519 + sha256 rfc6962
   [OK  ] signature.json: ed25519 signature verified over root under trusted signer f2de2b5f14785372...
 
@@ -99,12 +99,12 @@ No, because `verify_packet` pins the signer to a key supplied **out-of-band** (`
 $ verify_packet ./forged_packet \
     --pubkey f2de2b5f14785372ced46288f3009448db17495312fe0492377fd14b036a5dc8
 trusted signer source: --pubkey (CLI) (1 key)
-  [OK  ] be-01: body sha256 ok (dc804afaae9b6b8f...)        # the attacker's internal
-  [OK  ] be-02: body sha256 ok (9b860165ee9a9c81...)        # consistency holds: every
-  [OK  ] be-03: body sha256 ok (2bbeb7b0da6bb073...)        # hash recomputes, the new
-  [OK  ] de-01: body sha256 ok (5315f603b653588b...)        # root matches, the new
-  [OK  ] de-02: body sha256 ok (9baa7f16fe3ecaa4...)        # signature verifies under
-  [OK  ] de-03: body sha256 ok (5315f603b653588b...)        # the attacker's OWN key...
+  [OK  ] be-01: body sha256 ok (d330b0359d0842ec...)        # the attacker's internal
+  [OK  ] be-02: body sha256 ok (28b3183b444f0e26...)        # consistency holds: every
+  [OK  ] be-03: body sha256 ok (c53ce8fed489b745...)        # hash recomputes, the new
+  [OK  ] de-01: body sha256 ok (1127eb8160e177f9...)        # root matches, the new
+  [OK  ] de-02: body sha256 ok (399a7dc4a44590f5...)        # signature verifies under
+  [OK  ] de-03: body sha256 ok (1127eb8160e177f9...)        # the attacker's OWN key...
   [OK  ] merkle.json: leaf table matches recomputed leaves
   [OK  ] merkle.json/root: root ok (ed6d42af92936b51...)
   [OK  ] signature.json: algorithm/scheme pinned: ed25519 + sha256 rfc6962
@@ -241,7 +241,7 @@ amber_packet/
 
 The Merkle leaves, in fixed order: each capture body, then `manifest.json`, then `facts.json`. Because `facts.json` is itself a leaf, **editing any number in it changes the root and the signature fails**: the verifier flashes RED at `facts.json`, naming the broken node. The same holds for flipping any captured byte or reordering manifest entries. **That is THE TAMPER PROOF.**
 
-For `samples/live_packet`: Merkle root `da20841e40815fab…`, signed by `f2de2b5f14785372…` (ed25519 over the RFC 6962 root).
+For `samples/live_packet`: Merkle root `c5a6fc3887dfaf46…`, signed by `f2de2b5f14785372…` (ed25519 over the RFC 6962 root).
 
 ### The trust pin (out-of-band, the security property)
 
@@ -310,7 +310,7 @@ The packet ships with **no private key**; `signature.json` is the public key and
 | **Layer-2 · legal jury** | [`amber/jury/`](./amber/jury) | 3-model jury over the signed facts; UNSIGNED sibling advisory; gold-set P/R. | 36 |
 | **Layer-2 · temporal memory** | [`amber/memory/`](./amber/memory) | Cognee self-host (Gemini) plus deterministic persistence verdict; real captures only. | 45 |
 | **Layer-2 · event workflow** | [`amber/workflow/`](./amber/workflow) | Signed delta fires a TriggerWare trigger, then a brand-protection alert (the signed FACT). | 50 |
-| **Demo UI** | [`web/`](./web) | Next.js 14 + Tailwind. Split-frame catch · within-country control · THE TAMPER PROOF (RED/GREEN = the real `verify_packet` exit code) · one live cell · one-command offline run. | n/a |
+| **Demo UI** | [`web/`](./web) | Next.js 14 + Tailwind. Split-frame catch · within-country control · THE TAMPER PROOF (RED/GREEN = the real `verify_packet` exit code) · one-command offline run. | tsc + build + lint clean |
 
 **Test counts:** **324 passing**, 3 skipped (opt-in live smoke tests for the jury / memory / workflow, run with `AMBER_*_LIVE=1`). `ruff` clean; `tsc --noEmit` + `next build` + `next lint` clean. Zero `TODO`/`FIXME` markers in shipped code.
 
@@ -376,7 +376,7 @@ Restraint is credibility. Amber labels every boundary:
 
 <div align="center">
 
-**lablab.ai · "Web Data UNLOCKED" (sponsor: Bright Data)** · Security · Finance · GTM
+**lablab.ai · "Web Data UNLOCKED"· Security · Finance · GTM
 Author: **[Yashash Sheshagiri](https://github.com/Yashash4)** · License: MIT
 
 </div>
