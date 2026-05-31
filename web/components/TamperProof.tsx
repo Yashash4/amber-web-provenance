@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { FACTS_JSON_PRETTY, SIGNER_PUBKEY, VERIFY_GREEN, VERIFY_RED } from "@/app/data/packet";
-import { SectionHead } from "@/components/SplitFrame";
+import { PanelHead } from "@/components/SplitFrame";
 import type { VerifyResult } from "@/lib/verify-types";
 
 type Step = "idle" | "verified" | "tampered" | "reverted";
@@ -47,12 +47,12 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
     }, 420);
   }
 
-  /** Tamper a byte: bump the signed net-of-tax delta in the editor copy. */
+  /** Tamper a byte: bump the signed net_of_tax_delta in the editor copy. */
   function tamperByte() {
     flash("editing facts.json + re-running verify_packet…", () => {
-      const target = '"netDelta": "10.75"';
+      const target = '"net_of_tax_delta": "10.75"';
       const next = facts.includes(target)
-        ? facts.replace(target, '"netDelta": "99.99"')
+        ? facts.replace(target, '"net_of_tax_delta": "99.99"')
         : facts;
       setFacts(next);
       const changed = next !== FACTS_JSON_PRETTY;
@@ -87,24 +87,29 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
   }
 
   return (
-    <section className="space-y-3">
-      <SectionHead
-        eyebrow="The tamper proof"
-        title="A signed evidence packet anyone re-verifies offline"
-        sub={
-          <>
-            Edit one byte and the verdict flips. The RED/GREEN below is the real{" "}
-            <code className="text-amber">verify_packet</code> exit code, captured verbatim, not a
-            hardcoded UI state.
-          </>
-        }
-      />
+    <section className="panel-card glow-amber space-y-4 p-4 sm:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <PanelHead
+          eyebrow="The verifier console · centerpiece"
+          title="A signed evidence packet anyone re-verifies offline"
+          sub={
+            <>
+              Edit one byte and the verdict flips. The RED/GREEN below is the real{" "}
+              <code className="text-amber">verify_packet</code> exit code, captured verbatim, not a
+              hardcoded UI state.
+            </>
+          }
+        />
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/65">
+          interactive · break it, then fix it
+        </span>
+      </div>
 
       <VerdictBanner result={result} busy={busy} busyLabel={busyLabel} edited={edited} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Editor side. */}
-        <div className="panel-card flex flex-col p-4">
+        <div className="flex min-w-0 flex-col rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wide text-white/45">
               working copy {"·"} facts.json (a Merkle leaf)
@@ -115,7 +120,7 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
             value={facts}
             onChange={(e) => onEdit(e.target.value)}
             spellCheck={false}
-            className="thin-scroll h-64 w-full resize-none rounded-lg border border-white/12 bg-black/55 p-3 font-mono text-[11px] leading-snug text-white/80 outline-none focus:border-amber/50"
+            className="thin-scroll h-72 w-full resize-none rounded-lg border border-white/12 bg-black/55 p-3 font-mono text-[11px] leading-snug text-white/80 outline-none focus:border-amber/50"
           />
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -143,7 +148,7 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
         </div>
 
         {/* Real verifier output side. */}
-        <div className="panel-card flex flex-col p-4">
+        <div className="flex min-w-0 flex-col rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] uppercase tracking-wide text-white/45">
               real verifier output (verbatim)
@@ -161,7 +166,7 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
             )}
           </div>
           {result?.command && (
-            <div className="rounded-md bg-black/60 px-2 py-1 font-mono text-[11px] text-amber/70">
+            <div className="break-all rounded-md bg-black/60 px-2 py-1 font-mono text-[11px] text-amber/70">
               $ {result.command}
             </div>
           )}
@@ -172,10 +177,10 @@ export function TamperProof({ initialFacts }: { initialFacts: string }) {
             <div className="mt-2 space-y-0.5">
               {result.checks.map((c, i) => (
                 <div key={i} className="flex items-start gap-2 font-mono text-[11px]">
-                  <span className={c.ok ? "text-verified" : "text-broken"}>
+                  <span className={`shrink-0 ${c.ok ? "text-verified" : "text-broken"}`}>
                     {c.ok ? "OK  " : "FAIL"}
                   </span>
-                  <span className="text-white/55">
+                  <span className="min-w-0 break-all text-white/55">
                     <span className="text-white/80">{c.node}</span>: {c.detail}
                   </span>
                 </div>

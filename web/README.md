@@ -92,15 +92,6 @@ AMBER_PACKET_DIR=samples/live_packet npm run demo
 When the swapped packet is not a fixture, the banner flips to
 **"REAL CAPTURED PACKET"**.
 
-## The ONE live cell
-
-The live-capture cell (`app/api/live/route.ts`) calls Component 2's real
-credential probe (`python -m amber.capture_cli creds`). Until Bright Data
-credentials exist it honestly shows **"live capture - pending Bright Data
-credentials"** (driven by the probe's real exit code) and **never fabricates a
-live result**. It arms automatically the moment `BRIGHTDATA_*` credentials are
-set.
-
 ## Environment variables
 
 | Var | Purpose | Default |
