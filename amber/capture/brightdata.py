@@ -48,20 +48,25 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import random
 import ssl
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import TypeVar
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 
+from amber.capture import retry as _retry
 from amber.capture.credentials import BrightDataCredentials, CredentialsMissing
 from amber.capture.record import CaptureRecord
 
@@ -99,9 +104,130 @@ _REQUEST_HEADERS = {
 
 DEFAULT_TIMEOUT = 45
 
+# --------------------------------------------------------------------------- #
+# Classified-retry policy for the capture transport (the Python port of the
+# resilience policy Amber contributed upstream as PR #155). A multi-geo
+# same-second batch dispatches N captures concurrently and reads each future's
+# result, so the FIRST transient transport blip (a 502/504 from the super-proxy,
+# a connection reset, a read timeout) would otherwise fail the whole batch. We
+# retry ONLY a THROWN transport failure (never a returned target status, which is
+# a capturable result), on the SAME sticky session (same residential exit, so the
+# within-country control is preserved), with full-jitter exponential backoff.
+#
+# Defaults: 2 retries (3 attempts total). Small on purpose: captures want to ride
+# out a transient blip, not to mask a genuinely dead exit or to inflate wall-clock
+# time on a hopeless target. All three knobs are env-tunable (mirroring #155):
+#   AMBER_CAPTURE_MAX_RETRIES     retries AFTER the first attempt (default 2)
+#   AMBER_CAPTURE_BASE_BACKOFF_MS exponential base in ms                (default 500)
+#   AMBER_CAPTURE_MAX_BACKOFF_MS  per-wait cap in ms                    (default 30000)
+# A malformed/negative env value falls back to the default (never crashes, never
+# a negative wait), matching the credentials/env style elsewhere in the package.
+DEFAULT_CAPTURE_MAX_RETRIES = 2
+DEFAULT_CAPTURE_BASE_BACKOFF_MS = 500.0
+DEFAULT_CAPTURE_MAX_BACKOFF_MS = 30000.0
+
+_T = TypeVar("_T")
+
 
 class CaptureError(RuntimeError):
     """A real capture attempt failed (network/proxy error) — surfaced, not faked."""
+
+
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    """Read a non-negative int from the env, falling back to ``default``.
+
+    A missing/blank/malformed/negative value yields ``default`` (no crash, no
+    negative budget). Used for the retry-budget knob.
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+    except ValueError:
+        return default
+    return val if val >= minimum else default
+
+
+def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    """Read a non-negative float from the env, falling back to ``default``.
+
+    A missing/blank/malformed/negative value yields ``default`` (no crash, no
+    negative backoff). Used for the backoff-ms knobs.
+    """
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        val = float(raw)
+    except ValueError:
+        return default
+    return val if val >= minimum else default
+
+
+def _capture_max_retries() -> int:
+    """Retries AFTER the first attempt (env-tunable; default 2)."""
+    return _env_int("AMBER_CAPTURE_MAX_RETRIES", DEFAULT_CAPTURE_MAX_RETRIES)
+
+
+def _capture_backoff_opts() -> _retry.BackoffOpts:
+    """The env-tunable full-jitter backoff policy for capture transport retries."""
+    return _retry.BackoffOpts(
+        base_ms=_env_float("AMBER_CAPTURE_BASE_BACKOFF_MS", DEFAULT_CAPTURE_BASE_BACKOFF_MS),
+        max_ms=_env_float("AMBER_CAPTURE_MAX_BACKOFF_MS", DEFAULT_CAPTURE_MAX_BACKOFF_MS),
+        factor=2.0,
+        jitter="full",
+    )
+
+
+def _with_transport_retry(
+    fetch: Callable[[], _T],
+    *,
+    max_retries: int | None = None,
+    opts: _retry.BackoffOpts | None = None,
+    sleep: Callable[[float], None] | None = None,
+    rng: Callable[[], float] | None = None,
+) -> _T:
+    """Run ``fetch`` (a real transport call), retrying ONLY transient transport
+    failures with full-jitter backoff before finally raising :class:`CaptureError`.
+
+    ``fetch`` must perform the actual fetch and raise :class:`CaptureError` on a
+    transport failure (as ``_fetch_via_proxy`` / ``_fetch_via_api`` already do),
+    chaining the original ``requests`` / ``urllib`` exception as ``__cause__``. We
+    classify that cause via :func:`amber.capture.retry.classify_transport_error`:
+    a TRANSIENT failure (reset/timeout/refused/transient gateway blip) is retried
+    on the SAME session object the caller closed over (same residential exit, so
+    the within-country control is intact); a TERMINAL failure is re-raised at once
+    (never burning the budget on a hopeless retry).
+
+    A returned value (any HTTP status, including a target 4xx/5xx) flows straight
+    through: it is a CAPTURABLE RESULT and is NEVER retried (the forensic guard:
+    the returned status never raises, so it never reaches the except branch).
+    ``sleep`` / ``rng`` are injected (resolved at call time off this module, so a
+    test that monkeypatches ``brightdata.time.sleep`` / ``brightdata.random.random``
+    is honored) for a loop that is unit-testable with no real waiting and
+    deterministic jitter.
+    """
+    budget = _capture_max_retries() if max_retries is None else max_retries
+    policy = opts or _capture_backoff_opts()
+    do_sleep = sleep if sleep is not None else time.sleep
+    do_rng = rng if rng is not None else random.random
+    attempt = 0
+    while True:
+        try:
+            return fetch()
+        except CaptureError as exc:
+            # Classify the ORIGINAL transport exception (chained as __cause__),
+            # never the CaptureError wrapper itself. A returned target status is
+            # not an exception, so it never reaches here (it is already returned).
+            cause = exc.__cause__ if exc.__cause__ is not None else exc
+            classification = _retry.classify_transport_error(cause)
+            decision = _retry.should_retry(classification, attempt, budget, policy, do_rng)
+            if not decision.retry:
+                # Terminal, or budget exhausted: surface the real failure honestly.
+                raise
+            do_sleep(max(0.0, decision.delay_ms) / 1000.0)
+            attempt += 1
 
 
 @dataclass
@@ -390,11 +516,23 @@ def capture_one(
         try:
             exit_ip = _discover_exit_ip(sess, timeout)
             proxy_country = _exit_country_from_echo(sess, timeout)
-            res = _fetch_via_proxy(sess, url, timeout)
+            # The product fetch is the load-bearing capture: ride out a transient
+            # transport blip (502/504, reset, timeout) with the classified-retry
+            # policy, on THIS SAME session (same residential exit, so the
+            # within-country control holds). A returned target status (any 4xx/5xx)
+            # is a capturable result and is returned unretried. dispatched_at was
+            # already stamped above, BEFORE any retry, so the dispatched-same-second
+            # verdict is unaffected; fetched_at below reflects the real completion.
+            res = _with_transport_retry(lambda: _fetch_via_proxy(sess, url, timeout))
         finally:
             sess.close()
     elif creds.mode == "api":
-        res, exit_ip = _fetch_via_api(creds, url, country, timeout)
+        # Same resilience for API mode: a transient gateway failure is retried;
+        # a returned status (the API surfaces target/gateway status as a result)
+        # flows through unretried.
+        res, exit_ip = _with_transport_retry(
+            lambda: _fetch_via_api(creds, url, country, timeout)
+        )
         proxy_country = country.upper()
         if not exit_ip:
             exit_ip = "api-mode-exit-unreported"

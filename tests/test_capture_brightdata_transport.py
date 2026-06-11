@@ -459,3 +459,220 @@ def test_batch_distinct_sessions_with_a_frozen_clock(monkeypatch):
         CREDS, {"DE": "https://shop.de/p"}, 3
     )
     assert len({r.session_id for r in records}) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Classified-retry integration (the PR #155 port). The retry wraps ONLY the
+# THROWN transport-failure path; a returned TARGET status is a capturable result
+# and is never retried; retries stay on the SAME sticky session (same exit).
+# All injected: no real sleeping, deterministic jitter, no live Bright Data.
+# --------------------------------------------------------------------------- #
+class _SequencedSession:
+    """A fake session whose product fetch yields a SCRIPTED sequence of outcomes.
+
+    Each ``get`` of the product URL pops the next item: a ``_FakeResponse`` is
+    returned (a real captured result), an ``Exception`` instance is raised (a
+    thrown transport failure). The welcome/IP echo always succeeds so the retry
+    is exercised on the PRODUCT fetch specifically. ``product_get_count`` records
+    how many times the product URL was fetched (the attempt count).
+    """
+
+    def __init__(self, product_sequence: list) -> None:
+        self._seq = list(product_sequence)
+        self.proxies: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
+        self.product_get_count = 0
+        self.closed = False
+
+    def mount(self, *_a) -> None:
+        pass
+
+    def get(self, url: str, **_kw):
+        if "welcome.txt" in url or "ipify" in url:
+            return _FakeResponse(200, {}, b"Country: de\nYour IP: 91.10.20.30\n")
+        self.product_get_count += 1
+        item = self._seq.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _patch_no_sleep(monkeypatch) -> list[float]:
+    """Patch the transport sleep so retries do not actually wait; record the
+    delays so the test can assert backoff was applied. Also pin rng to a fixed
+    value for deterministic jitter."""
+    slept: list[float] = []
+    monkeypatch.setattr(brightdata.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(brightdata.random, "random", lambda: 0.5)
+    return slept
+
+
+def test_capture_one_retries_transient_transport_error_then_succeeds(monkeypatch):
+    """A transient transport blip on the product fetch (a reset) is retried on the
+    SAME session and then succeeds: one record, never a failed batch."""
+    slept = _patch_no_sleep(monkeypatch)
+    product = b'{"sku":"AMBER-HERO-001","price":"129.99","currency":"EUR"}'
+    sessions: list[_SequencedSession] = []
+
+    # requests wraps a socket reset into requests.exceptions.ConnectionError with
+    # the OSError chained as __cause__ (exactly what _fetch_via_proxy then wraps
+    # into CaptureError). Reproduce that realistic shape so the test exercises the
+    # production classification path (the chained errno is what marks it transient).
+    reset = requests.exceptions.ConnectionError("Connection aborted")
+    reset.__cause__ = ConnectionResetError(104, "Connection reset by peer")
+
+    def factory():
+        s = _SequencedSession(
+            [
+                reset,  # 1st product fetch: a transient reset
+                _FakeResponse(200, {"Content-Type": "application/json"}, product),  # retry ok
+            ]
+        )
+        sessions.append(s)
+        return s
+
+    monkeypatch.setattr(brightdata.requests, "Session", factory)
+    rec, _fetched = brightdata.capture_one(
+        CREDS, URL, "DE", "amber-de-1-1748000000000", "de-01", timeout=30
+    )
+    assert rec.http_status == 200
+    assert rec.body == product
+    # Exactly one retry happened (2 product fetches), on the SAME session object.
+    assert len(sessions) == 1
+    assert sessions[0].product_get_count == 2
+    assert len(slept) == 1 and slept[0] >= 0  # one backoff sleep, non-negative
+
+
+def test_capture_one_persistent_transient_error_retries_then_raises(monkeypatch):
+    """A persistently-failing transient transport error is retried EXACTLY
+    max_retries times (default 2 -> 3 product attempts) then raises CaptureError."""
+    slept = _patch_no_sleep(monkeypatch)
+    sessions: list[_SequencedSession] = []
+
+    def factory():
+        s = _SequencedSession(
+            [
+                requests.exceptions.ConnectionError("reset 1"),
+                requests.exceptions.ConnectionError("reset 2"),
+                requests.exceptions.ConnectionError("reset 3"),
+                requests.exceptions.ConnectionError("reset 4"),  # never reached
+            ]
+        )
+        sessions.append(s)
+        return s
+
+    monkeypatch.setattr(brightdata.requests, "Session", factory)
+    with pytest.raises(brightdata.CaptureError):
+        brightdata.capture_one(CREDS, URL, "DE", "s1", "de-01", timeout=30)
+    # Default budget = 2 retries -> 3 product attempts total, then give up.
+    assert sessions[0].product_get_count == 3
+    assert len(slept) == 2  # two backoff waits between the three attempts
+
+
+def test_capture_one_returned_target_status_is_not_retried(monkeypatch):
+    """A returned TARGET 4xx/5xx is a capturable result: returned on the FIRST
+    fetch, never retried (the forensic guard). One product fetch, status kept."""
+    slept = _patch_no_sleep(monkeypatch)
+    sessions: list[_SequencedSession] = []
+    blocked = b"<html>unavailable for legal reasons</html>"
+
+    def factory():
+        s = _SequencedSession(
+            [_FakeResponse(451, {"Content-Type": "text/html"}, blocked)]
+        )
+        sessions.append(s)
+        return s
+
+    monkeypatch.setattr(brightdata.requests, "Session", factory)
+    rec, _fetched = brightdata.capture_one(CREDS, URL, "DE", "s1", "de-01", timeout=30)
+    assert rec.http_status == 451  # the target status is the captured result
+    assert rec.body == blocked
+    assert sessions[0].product_get_count == 1  # NOT retried
+    assert slept == []  # no backoff for a captured result
+
+
+def test_capture_one_terminal_transport_error_is_not_retried(monkeypatch):
+    """An UNRECOGNIZED (terminal) transport failure is surfaced at once, never
+    burning the retry budget on a hopeless retry."""
+    slept = _patch_no_sleep(monkeypatch)
+    sessions: list[_SequencedSession] = []
+
+    class _WeirdTransport(requests.exceptions.RequestException):
+        pass
+
+    def factory():
+        s = _SequencedSession([_WeirdTransport("unclassifiable")])
+        sessions.append(s)
+        return s
+
+    monkeypatch.setattr(brightdata.requests, "Session", factory)
+    with pytest.raises(brightdata.CaptureError):
+        brightdata.capture_one(CREDS, URL, "DE", "s1", "de-01", timeout=30)
+    assert sessions[0].product_get_count == 1  # tried once, no retry
+    assert slept == []
+
+
+def test_retry_budget_is_env_tunable(monkeypatch):
+    """AMBER_CAPTURE_MAX_RETRIES raises the budget; a malformed value falls back
+    to the default. The knob is read live so an operator can tune resilience."""
+    monkeypatch.setenv("AMBER_CAPTURE_MAX_RETRIES", "4")
+    assert brightdata._capture_max_retries() == 4
+    monkeypatch.setenv("AMBER_CAPTURE_MAX_RETRIES", "garbage")
+    assert brightdata._capture_max_retries() == brightdata.DEFAULT_CAPTURE_MAX_RETRIES
+    monkeypatch.setenv("AMBER_CAPTURE_MAX_RETRIES", "-1")  # negative -> default
+    assert brightdata._capture_max_retries() == brightdata.DEFAULT_CAPTURE_MAX_RETRIES
+    monkeypatch.delenv("AMBER_CAPTURE_MAX_RETRIES", raising=False)
+    assert brightdata._capture_max_retries() == 2  # documented default
+
+
+def test_backoff_knobs_are_env_tunable(monkeypatch):
+    monkeypatch.setenv("AMBER_CAPTURE_BASE_BACKOFF_MS", "250")
+    monkeypatch.setenv("AMBER_CAPTURE_MAX_BACKOFF_MS", "5000")
+    opts = brightdata._capture_backoff_opts()
+    assert opts.base_ms == 250.0
+    assert opts.max_ms == 5000.0
+    assert opts.jitter == "full"
+    # Malformed -> defaults (no crash, no negative backoff).
+    monkeypatch.setenv("AMBER_CAPTURE_BASE_BACKOFF_MS", "nope")
+    monkeypatch.setenv("AMBER_CAPTURE_MAX_BACKOFF_MS", "-9")
+    opts2 = brightdata._capture_backoff_opts()
+    assert opts2.base_ms == brightdata.DEFAULT_CAPTURE_BASE_BACKOFF_MS
+    assert opts2.max_ms == brightdata.DEFAULT_CAPTURE_MAX_BACKOFF_MS
+
+
+def test_with_transport_retry_honors_retry_after_capped(monkeypatch):
+    """A transient failure that classifies with a server Retry-After waits that
+    value (clamped to max). We drive _with_transport_retry directly with an
+    injected sleep + a classification carrying retry_after_ms, proving the
+    server value wins over the computed band and is capped at max_ms."""
+    slept: list[float] = []
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            exc = brightdata.CaptureError("transient")
+            exc.__cause__ = requests.exceptions.ConnectionError("reset")
+            raise exc
+        return "ok"
+
+    # Force the classification to carry a huge Retry-After so we see the cap.
+    def fake_classify(_cause):
+        return brightdata._retry.Classification(
+            brightdata._retry.OUTCOME_RATE_LIMITED, 429, 120000, True, "rate limited"
+        )
+
+    monkeypatch.setattr(brightdata._retry, "classify_transport_error", fake_classify)
+    out = brightdata._with_transport_retry(
+        fetch,
+        max_retries=2,
+        opts=brightdata._retry.BackoffOpts(max_ms=30000, jitter="none"),
+        sleep=lambda s: slept.append(s),
+        rng=lambda: 0.5,
+    )
+    assert out == "ok"
+    # 120000ms Retry-After clamped to 30000ms max -> a 30.0s wait.
+    assert slept == [30.0]
